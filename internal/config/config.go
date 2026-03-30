@@ -65,6 +65,16 @@ type Config struct {
 	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`
 
+	// UsageStatisticsPersist enables snapshot persistence so usage statistics survive restarts.
+	UsageStatisticsPersist bool `yaml:"usage-statistics-persist" json:"usage-statistics-persist"`
+
+	// UsageStatisticsPath is the file path used to persist usage statistics snapshots.
+	UsageStatisticsPath string `yaml:"usage-statistics-path" json:"usage-statistics-path"`
+
+	// UsageStatisticsFlushIntervalSeconds controls how often persisted usage snapshots are flushed to disk.
+	// Zero uses the default interval; negative values disable periodic flush and keep shutdown-only persistence.
+	UsageStatisticsFlushIntervalSeconds int `yaml:"usage-statistics-flush-interval-seconds" json:"usage-statistics-flush-interval-seconds"`
+
 	// DisableCooling disables quota cooldown scheduling when true.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 
@@ -567,6 +577,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.LogsMaxTotalSizeMB = 0
 	cfg.ErrorLogsMaxFiles = 10
 	cfg.UsageStatisticsEnabled = false
+	cfg.UsageStatisticsPersist = false
+	cfg.UsageStatisticsPath = ""
+	cfg.UsageStatisticsFlushIntervalSeconds = 10
 	cfg.DisableCooling = false
 	cfg.Pprof.Enable = false
 	cfg.Pprof.Addr = DefaultPprofAddr

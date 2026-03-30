@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,13 +16,13 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/api"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor"
-	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
+	internalusage "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/watcher"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/wsrelay"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
-	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
+	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -89,6 +90,15 @@ type Service struct {
 
 	// wsGateway manages websocket Gemini providers.
 	wsGateway *wsrelay.Manager
+
+	// usageStats points at the shared statistics store used for persistence.
+	usageStats *internalusage.RequestStatistics
+
+	// usagePersistence flushes usage statistics snapshots to disk.
+	usagePersistence *internalusage.SnapshotPersistence
+
+	// usagePersistenceMu guards usage persistence start/stop/reconfigure.
+	usagePersistenceMu sync.Mutex
 }
 
 // RegisterUsagePlugin registers a usage plugin on the global usage manager.
@@ -96,8 +106,92 @@ type Service struct {
 //
 // Parameters:
 //   - plugin: The usage plugin to register
-func (s *Service) RegisterUsagePlugin(plugin usage.Plugin) {
-	usage.RegisterPlugin(plugin)
+func (s *Service) RegisterUsagePlugin(plugin coreusage.Plugin) {
+	coreusage.RegisterPlugin(plugin)
+}
+
+func (s *Service) usageStatistics() *internalusage.RequestStatistics {
+	if s == nil {
+		return nil
+	}
+	if s.usageStats != nil {
+		return s.usageStats
+	}
+	return internalusage.GetRequestStatistics()
+}
+
+func (s *Service) resolveUsagePersistenceConfig(cfg *config.Config) (bool, string, time.Duration) {
+	if s == nil || cfg == nil || !cfg.UsageStatisticsEnabled || !cfg.UsageStatisticsPersist {
+		return false, "", 0
+	}
+
+	path := strings.TrimSpace(cfg.UsageStatisticsPath)
+	baseDir := "."
+	if trimmed := strings.TrimSpace(s.configPath); trimmed != "" {
+		baseDir = filepath.Dir(trimmed)
+	}
+	if path == "" {
+		path = filepath.Join(baseDir, "usage-statistics.json")
+	} else if !filepath.IsAbs(path) {
+		path = filepath.Join(baseDir, path)
+	}
+
+	interval := 10 * time.Second
+	switch {
+	case cfg.UsageStatisticsFlushIntervalSeconds > 0:
+		interval = time.Duration(cfg.UsageStatisticsFlushIntervalSeconds) * time.Second
+	case cfg.UsageStatisticsFlushIntervalSeconds < 0:
+		interval = 0
+	}
+
+	return true, path, interval
+}
+
+func (s *Service) startUsagePersistence(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	s.usagePersistenceMu.Lock()
+	defer s.usagePersistenceMu.Unlock()
+
+	enabled, path, interval := s.resolveUsagePersistenceConfig(s.cfg)
+	if !enabled {
+		return nil
+	}
+
+	persistence := internalusage.NewSnapshotPersistence(s.usageStatistics(), path, interval)
+	if err := persistence.Start(ctx); err != nil {
+		return err
+	}
+	s.usagePersistence = persistence
+	return nil
+}
+
+func (s *Service) stopUsagePersistence(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	s.usagePersistenceMu.Lock()
+	persistence := s.usagePersistence
+	s.usagePersistence = nil
+	s.usagePersistenceMu.Unlock()
+	if persistence == nil {
+		return nil
+	}
+	return persistence.Stop(ctx)
+}
+
+func (s *Service) reconfigureUsagePersistence(ctx context.Context, cfg *config.Config) error {
+	if s == nil {
+		return nil
+	}
+	if err := s.stopUsagePersistence(ctx); err != nil {
+		return err
+	}
+	s.cfgMu.Lock()
+	s.cfg = cfg
+	s.cfgMu.Unlock()
+	return s.startUsagePersistence(ctx)
 }
 
 // newDefaultAuthManager creates a default authentication manager with all supported providers.
@@ -482,7 +576,7 @@ func (s *Service) Run(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
-	usage.StartDefault(ctx)
+	coreusage.StartDefault(ctx)
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -493,6 +587,9 @@ func (s *Service) Run(ctx context.Context) error {
 	}()
 
 	if err := s.ensureAuthDir(); err != nil {
+		return err
+	}
+	if err := s.startUsagePersistence(ctx); err != nil {
 		return err
 	}
 
@@ -613,8 +710,10 @@ func (s *Service) Run(ctx context.Context) error {
 	var watcherWrapper *WatcherWrapper
 	reloadCallback := func(newCfg *config.Config) {
 		previousStrategy := ""
+		var oldCfg *config.Config
 		s.cfgMu.RLock()
 		if s.cfg != nil {
+			oldCfg = s.cfg
 			previousStrategy = strings.ToLower(strings.TrimSpace(s.cfg.Routing.Strategy))
 		}
 		s.cfgMu.RUnlock()
@@ -655,12 +754,24 @@ func (s *Service) Run(ctx context.Context) error {
 		if s.server != nil {
 			s.server.UpdateClients(newCfg)
 		}
-		s.cfgMu.Lock()
-		s.cfg = newCfg
-		s.cfgMu.Unlock()
 		if s.coreManager != nil {
 			s.coreManager.SetConfig(newCfg)
 			s.coreManager.SetOAuthModelAlias(newCfg.OAuthModelAlias)
+		}
+		if oldCfg == nil ||
+			oldCfg.UsageStatisticsEnabled != newCfg.UsageStatisticsEnabled ||
+			oldCfg.UsageStatisticsPersist != newCfg.UsageStatisticsPersist ||
+			oldCfg.UsageStatisticsPath != newCfg.UsageStatisticsPath ||
+			oldCfg.UsageStatisticsFlushIntervalSeconds != newCfg.UsageStatisticsFlushIntervalSeconds {
+			reloadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := s.reconfigureUsagePersistence(reloadCtx, newCfg); err != nil {
+				log.Errorf("failed to reconfigure usage persistence: %v", err)
+			}
+			cancel()
+		} else {
+			s.cfgMu.Lock()
+			s.cfg = newCfg
+			s.cfgMu.Unlock()
 		}
 		s.rebindExecutors()
 	}
@@ -765,7 +876,13 @@ func (s *Service) Shutdown(ctx context.Context) error {
 			}
 		}
 
-		usage.StopDefault()
+		coreusage.StopDefault()
+		if err := s.stopUsagePersistence(ctx); err != nil {
+			log.Errorf("failed to stop usage persistence: %v", err)
+			if shutdownErr == nil {
+				shutdownErr = err
+			}
+		}
 	})
 	return shutdownErr
 }
