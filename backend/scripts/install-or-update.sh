@@ -166,6 +166,7 @@ build_backend() {
   (
     cd "$BACKEND_SRC"
     GOCACHE="${GOCACHE:-/tmp/go-build-cache}" go build \
+      -buildvcs=false \
       -mod=readonly \
       -ldflags "-X main.Version=${commit} -X main.Commit=${commit} -X main.BuildDate=${build_date}" \
       -o "$TMP_DIR/cli-proxy-api" \

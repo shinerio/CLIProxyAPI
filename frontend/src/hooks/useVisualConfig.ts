@@ -58,6 +58,7 @@ function parseApiKeys(raw: unknown): VisualApiKeyEntry[] {
     const key = extractApiKeyValue(item);
     if (!key) continue;
     const record = asRecord(item);
+    const name = typeof record?.name === 'string' ? record.name.trim() : '';
     const allowedAuthIndices = parseAllowedAuthIndices(
       record?.['allowed-auth-indices'] ??
         record?.allowedAuthIndices ??
@@ -67,6 +68,7 @@ function parseApiKeys(raw: unknown): VisualApiKeyEntry[] {
     );
     entries.push({
       id: makeClientId(),
+      name,
       key,
       allowedAuthIndices,
     });
@@ -615,6 +617,7 @@ export function useVisualConfig() {
         setStringInDoc(doc, ['auth-dir'], values.authDir);
         const apiKeys = values.apiKeys
           .map((entry) => ({
+            name: entry.name.trim(),
             key: entry.key.trim(),
             allowedAuthIndices: entry.allowedAuthIndices.map((item) => item.trim()).filter(Boolean),
           }))
@@ -623,10 +626,13 @@ export function useVisualConfig() {
           doc.setIn(
             ['api-keys'],
             apiKeys.map((entry) =>
-              entry.allowedAuthIndices.length > 0
+              entry.name || entry.allowedAuthIndices.length > 0
                 ? {
+                    ...(entry.name ? { name: entry.name } : {}),
                     key: entry.key,
-                    'allowed-auth-indices': entry.allowedAuthIndices,
+                    ...(entry.allowedAuthIndices.length > 0
+                      ? { 'allowed-auth-indices': entry.allowedAuthIndices }
+                      : {}),
                   }
                 : entry.key
             )

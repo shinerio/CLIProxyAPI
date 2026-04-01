@@ -427,8 +427,9 @@ func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth) gin.H {
 			entry["size"] = info.Size()
 			entry["modtime"] = info.ModTime()
 		} else if os.IsNotExist(err) {
-			// Hide credentials removed from disk but still lingering in memory.
-			if !runtimeOnly && (auth.Disabled || auth.Status == coreauth.StatusDisabled || strings.EqualFold(strings.TrimSpace(auth.StatusMessage), "removed via management api")) {
+			// File-backed auths without a backing file are stale and should not appear
+			// in management selectors or auth file listings.
+			if !runtimeOnly {
 				return nil
 			}
 			entry["source"] = "memory"

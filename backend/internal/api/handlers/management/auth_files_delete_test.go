@@ -127,3 +127,52 @@ func TestDeleteAuthFile_FallbackToAuthDirPath(t *testing.T) {
 		t.Fatalf("expected auth file to be removed from auth dir, stat err: %v", errStat)
 	}
 }
+
+func TestListAuthFiles_HidesMissingFileBackedAuth(t *testing.T) {
+	t.Setenv("MANAGEMENT_PASSWORD", "")
+	gin.SetMode(gin.TestMode)
+
+	authDir := t.TempDir()
+	missingPath := filepath.Join(authDir, "codex-missing@example.com-plus.json")
+
+	manager := coreauth.NewManager(nil, nil, nil)
+	record := &coreauth.Auth{
+		ID:       "legacy/codex-missing@example.com-plus.json",
+		FileName: "codex-missing@example.com-plus.json",
+		Provider: "codex",
+		Status:   coreauth.StatusActive,
+		Attributes: map[string]string{
+			"path": missingPath,
+		},
+		Metadata: map[string]any{
+			"type":  "codex",
+			"email": "missing@example.com",
+		},
+	}
+	if _, errRegister := manager.Register(context.Background(), record); errRegister != nil {
+		t.Fatalf("failed to register auth record: %v", errRegister)
+	}
+
+	h := NewHandlerWithoutConfigFilePath(&config.Config{AuthDir: authDir}, manager)
+	listRec := httptest.NewRecorder()
+	listCtx, _ := gin.CreateTestContext(listRec)
+	listReq := httptest.NewRequest(http.MethodGet, "/v0/management/auth-files", nil)
+	listCtx.Request = listReq
+	h.ListAuthFiles(listCtx)
+
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("expected list status %d, got %d with body %s", http.StatusOK, listRec.Code, listRec.Body.String())
+	}
+
+	var listPayload map[string]any
+	if errUnmarshal := json.Unmarshal(listRec.Body.Bytes(), &listPayload); errUnmarshal != nil {
+		t.Fatalf("failed to decode list payload: %v", errUnmarshal)
+	}
+	filesRaw, ok := listPayload["files"].([]any)
+	if !ok {
+		t.Fatalf("expected files array, payload: %#v", listPayload)
+	}
+	if len(filesRaw) != 0 {
+		t.Fatalf("expected missing file-backed auth to be hidden from list, got %d entries", len(filesRaw))
+	}
+}

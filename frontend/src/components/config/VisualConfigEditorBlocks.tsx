@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { authFilesApi } from '@/services/api';
-import { useNotificationStore } from '@/stores';
+import { useConfigStore, useNotificationStore } from '@/stores';
 import styles from './VisualConfigEditor.module.scss';
 import { copyToClipboard } from '@/utils/clipboard';
 import type {
@@ -17,7 +17,7 @@ import type {
   VisualApiKeyEntry,
 } from '@/types/visualConfig';
 import { makeClientId } from '@/types/visualConfig';
-import type { AuthFileItem } from '@/types';
+import type { AuthFileItem, Config } from '@/types';
 import {
   getPayloadParamValidationError,
   VISUAL_CONFIG_PAYLOAD_VALUE_TYPE_OPTIONS,
@@ -167,46 +167,370 @@ type CredentialOption = {
   subtitle: string;
 };
 
+type CredentialDescriptor = {
+  authIndex: string;
+  provider: string;
+  primary: string;
+  id?: string;
+  secondary?: string;
+  sourceKind: 'oauth' | 'provider_key';
+};
+
 function normalizeAuthIndex(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-function buildCredentialOptions(
-  files: AuthFileItem[],
-  t: ReturnType<typeof useTranslation>['t']
-): CredentialOption[] {
+function isTruthyFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
+  }
+  return false;
+}
+
+function buildAuthFileCredentialDescriptors(files: AuthFileItem[]): CredentialDescriptor[] {
   const seen = new Set<string>();
-  const options: CredentialOption[] = [];
+  const options: CredentialDescriptor[] = [];
 
   files.forEach((file) => {
     const authIndex = normalizeAuthIndex(file.authIndex ?? file['auth_index']);
     if (!authIndex || seen.has(authIndex)) return;
+
+    const runtimeOnly = isTruthyFlag(file.runtimeOnly ?? file.runtime_only);
+    const disabled = isTruthyFlag(file.disabled);
+    const status = String(file.status ?? '').trim().toLowerCase();
+    const path = String(file.path ?? '').trim();
+    const source = String(file.source ?? '').trim().toLowerCase();
+    if (runtimeOnly || disabled || status === 'disabled') return;
+    if (!path && source !== 'file') return;
+
     seen.add(authIndex);
 
     const provider = String(file.provider ?? file.type ?? 'unknown').trim() || 'unknown';
     const accountType = String(file['account_type'] ?? '').trim().toLowerCase();
     const rawAccount = String(file.account ?? file.email ?? '').trim();
+    const authFileID = String(file.name ?? file.id ?? '').trim();
     const primary =
       accountType === 'api_key'
         ? (rawAccount ? maskApiKey(rawAccount) : '')
         : rawAccount || String(file.label ?? file.name ?? '').trim();
-    const runtimeOnly = Boolean(file.runtimeOnly ?? file.runtime_only);
-    const sourceText = runtimeOnly
-      ? t('config_management.visual.api_keys.credential_provider_key', {
-          defaultValue: 'Provider key',
-        })
-      : t('config_management.visual.api_keys.credential_oauth', {
-          defaultValue: 'OAuth credential',
-        });
 
     options.push({
       authIndex,
-      title: primary ? `${provider} · ${primary}` : provider,
-      subtitle: `${sourceText} · auth_index: ${authIndex}`,
+      provider,
+      id: authFileID,
+      primary,
+      sourceKind: 'oauth',
     });
   });
 
-  return options.sort((left, right) => left.title.localeCompare(right.title, undefined, { sensitivity: 'base' }));
+  return options;
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const cryptoApi = globalThis.crypto;
+  const data = new TextEncoder().encode(input);
+  if (cryptoApi?.subtle) {
+    const digest = await cryptoApi.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+    0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+    0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+    0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+    0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+    0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+    0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+    0xc67178f2,
+  ];
+  const rotr = (value: number, bits: number) => (value >>> bits) | (value << (32 - bits));
+  const paddedLength = Math.ceil((data.length + 9) / 64) * 64;
+  const bytes = new Uint8Array(paddedLength);
+  bytes.set(data);
+  bytes[data.length] = 0x80;
+  const bitLength = data.length * 8;
+  const view = new DataView(bytes.buffer);
+  view.setUint32(bytes.length - 8, Math.floor(bitLength / 0x100000000), false);
+  view.setUint32(bytes.length - 4, bitLength >>> 0, false);
+
+  let h0 = 0x6a09e667;
+  let h1 = 0xbb67ae85;
+  let h2 = 0x3c6ef372;
+  let h3 = 0xa54ff53a;
+  let h4 = 0x510e527f;
+  let h5 = 0x9b05688c;
+  let h6 = 0x1f83d9ab;
+  let h7 = 0x5be0cd19;
+
+  const w = new Uint32Array(64);
+  for (let offset = 0; offset < bytes.length; offset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      w[index] = view.getUint32(offset + index * 4, false);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const s0 = rotr(w[index - 15], 7) ^ rotr(w[index - 15], 18) ^ (w[index - 15] >>> 3);
+      const s1 = rotr(w[index - 2], 17) ^ rotr(w[index - 2], 19) ^ (w[index - 2] >>> 10);
+      w[index] = (w[index - 16] + s0 + w[index - 7] + s1) >>> 0;
+    }
+
+    let a = h0;
+    let b = h1;
+    let c = h2;
+    let d = h3;
+    let e = h4;
+    let f = h5;
+    let g = h6;
+    let h = h7;
+
+    for (let index = 0; index < 64; index += 1) {
+      const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + s1 + ch + K[index] + w[index]) >>> 0;
+      const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (s0 + maj) >>> 0;
+
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+
+    h0 = (h0 + a) >>> 0;
+    h1 = (h1 + b) >>> 0;
+    h2 = (h2 + c) >>> 0;
+    h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0;
+    h5 = (h5 + f) >>> 0;
+    h6 = (h6 + g) >>> 0;
+    h7 = (h7 + h) >>> 0;
+  }
+
+  return [h0, h1, h2, h3, h4, h5, h6, h7]
+    .map((value) => value.toString(16).padStart(8, '0'))
+    .join('');
+}
+
+class StableIDGenerator {
+  private readonly counters = new Map<string, number>();
+
+  async next(kind: string, ...parts: string[]): Promise<{ id: string; token: string }> {
+    const payload = kind + parts.map((part) => `\0${part.trim()}`).join('');
+    let short = (await sha256Hex(payload)).slice(0, 12);
+    if (!short) short = '000000000000';
+    if (short.length < 12) short = short.padStart(12, '0');
+    const counterKey = `${kind}:${short}`;
+    const current = this.counters.get(counterKey) ?? 0;
+    this.counters.set(counterKey, current + 1);
+    const token = current > 0 ? `${short}-${current}` : short;
+    return { id: `${kind}:${token}`, token };
+  }
+}
+
+function buildConfigIndexSeed({
+  providerKey,
+  compatName,
+  baseUrl,
+  proxyUrl,
+  apiKey,
+  source,
+}: {
+  providerKey: string;
+  compatName?: string;
+  baseUrl?: string;
+  proxyUrl?: string;
+  apiKey?: string;
+  source?: string;
+}): string {
+  const parts = [`provider=${providerKey.trim().toLowerCase()}`];
+  const compat = (compatName ?? '').trim().toLowerCase();
+  const base = (baseUrl ?? '').trim();
+  const proxy = (proxyUrl ?? '').trim();
+  const key = (apiKey ?? '').trim();
+  const origin = (source ?? '').trim();
+
+  if (compat) parts.push(`compat=${compat}`);
+  if (base) parts.push(`base=${base}`);
+  if (proxy) parts.push(`proxy=${proxy}`);
+  if (key) parts.push(`api_key=${key}`);
+  if (origin) parts.push(`source=${origin}`);
+
+  return `config:${parts.join('\x00')}`;
+}
+
+async function deriveConfigAuthIndex(seed: string): Promise<string> {
+  return (await sha256Hex(seed)).slice(0, 16);
+}
+
+async function createProviderCredentialDescriptor(input: {
+  generator: StableIDGenerator;
+  kind: string;
+  tokenParts: string[];
+  providerKey: string;
+  providerLabel: string;
+  compatName?: string;
+  baseUrl?: string;
+  proxyUrl?: string;
+  apiKey?: string;
+}): Promise<CredentialDescriptor | null> {
+  const apiKey = (input.apiKey ?? '').trim();
+  if (!apiKey) return null;
+
+  const { token } = await input.generator.next(input.kind, ...input.tokenParts);
+  const source = `config:${input.providerKey}[${token}]`;
+  const authIndex = await deriveConfigAuthIndex(
+    buildConfigIndexSeed({
+      providerKey: input.providerKey,
+      compatName: input.compatName,
+      baseUrl: input.baseUrl,
+      proxyUrl: input.proxyUrl,
+      apiKey,
+      source,
+    })
+  );
+  if (!authIndex) return null;
+
+  return {
+    authIndex,
+    provider: input.providerLabel.trim() || input.providerKey,
+    primary: maskApiKey(apiKey),
+    secondary: (input.baseUrl ?? '').trim(),
+    sourceKind: 'provider_key',
+  };
+}
+
+async function buildProviderCredentialDescriptors(config: Config | null | undefined): Promise<CredentialDescriptor[]> {
+  if (!config) return [];
+
+  const generator = new StableIDGenerator();
+  const descriptors: CredentialDescriptor[] = [];
+
+  for (const entry of config.geminiApiKeys ?? []) {
+    const descriptor = await createProviderCredentialDescriptor({
+      generator,
+      kind: 'gemini:apikey',
+      tokenParts: [entry.apiKey ?? '', entry.baseUrl ?? ''],
+      providerKey: 'gemini',
+      providerLabel: 'gemini',
+      baseUrl: entry.baseUrl,
+      proxyUrl: entry.proxyUrl,
+      apiKey: entry.apiKey,
+    });
+    if (descriptor) descriptors.push(descriptor);
+  }
+
+  for (const entry of config.claudeApiKeys ?? []) {
+    const descriptor = await createProviderCredentialDescriptor({
+      generator,
+      kind: 'claude:apikey',
+      tokenParts: [entry.apiKey ?? '', entry.baseUrl ?? ''],
+      providerKey: 'claude',
+      providerLabel: 'claude',
+      baseUrl: entry.baseUrl,
+      proxyUrl: entry.proxyUrl,
+      apiKey: entry.apiKey,
+    });
+    if (descriptor) descriptors.push(descriptor);
+  }
+
+  for (const entry of config.codexApiKeys ?? []) {
+    const descriptor = await createProviderCredentialDescriptor({
+      generator,
+      kind: 'codex:apikey',
+      tokenParts: [entry.apiKey ?? '', entry.baseUrl ?? ''],
+      providerKey: 'codex',
+      providerLabel: 'codex',
+      baseUrl: entry.baseUrl,
+      proxyUrl: entry.proxyUrl,
+      apiKey: entry.apiKey,
+    });
+    if (descriptor) descriptors.push(descriptor);
+  }
+
+  for (const entry of config.vertexApiKeys ?? []) {
+    const descriptor = await createProviderCredentialDescriptor({
+      generator,
+      kind: 'vertex:apikey',
+      tokenParts: [entry.apiKey ?? '', entry.baseUrl ?? '', entry.proxyUrl ?? ''],
+      providerKey: 'vertex-apikey',
+      providerLabel: 'vertex',
+      baseUrl: entry.baseUrl,
+      proxyUrl: entry.proxyUrl,
+      apiKey: entry.apiKey,
+    });
+    if (descriptor) descriptors.push(descriptor);
+  }
+
+  for (const provider of config.openaiCompatibility ?? []) {
+    const providerName = (provider.name ?? '').trim();
+    const providerKey = providerName.toLowerCase() || 'openai-compatibility';
+    const providerLabel = providerName || providerKey;
+    for (const entry of provider.apiKeyEntries ?? []) {
+      const descriptor = await createProviderCredentialDescriptor({
+        generator,
+        kind: `openai-compatibility:${providerKey}`,
+        tokenParts: [entry.apiKey ?? '', provider.baseUrl ?? '', entry.proxyUrl ?? ''],
+        providerKey,
+        providerLabel,
+        compatName: providerName,
+        baseUrl: provider.baseUrl,
+        proxyUrl: entry.proxyUrl,
+        apiKey: entry.apiKey,
+      });
+      if (descriptor) descriptors.push(descriptor);
+    }
+  }
+
+  return descriptors;
+}
+
+function mergeCredentialDescriptors(...groups: CredentialDescriptor[][]): CredentialDescriptor[] {
+  const seen = new Set<string>();
+  const merged: CredentialDescriptor[] = [];
+
+  groups.flat().forEach((descriptor) => {
+    if (!descriptor.authIndex || seen.has(descriptor.authIndex)) return;
+    seen.add(descriptor.authIndex);
+    merged.push(descriptor);
+  });
+
+  return merged;
+}
+
+function buildCredentialOptions(
+  descriptors: CredentialDescriptor[],
+  t: ReturnType<typeof useTranslation>['t']
+): CredentialOption[] {
+  return descriptors
+    .map((descriptor) => {
+      const sourceText =
+        descriptor.sourceKind === 'provider_key'
+          ? t('config_management.visual.api_keys.credential_provider_key', {
+              defaultValue: 'Provider key',
+            })
+          : t('config_management.visual.api_keys.credential_oauth', {
+              defaultValue: 'OAuth credential',
+            });
+
+      return {
+        authIndex: descriptor.authIndex,
+        title:
+          descriptor.sourceKind === 'oauth'
+            ? [descriptor.provider, descriptor.id, descriptor.primary].filter(Boolean).join(' · ')
+            : [descriptor.provider, descriptor.secondary, descriptor.primary].filter(Boolean).join(' · '),
+        subtitle: `${sourceText} · auth_index: ${descriptor.authIndex}`,
+      };
+    })
+    .sort((left, right) => left.title.localeCompare(right.title, undefined, { sensitivity: 'base' }));
 }
 
 export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
@@ -220,10 +544,13 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 }) {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
+  const config = useConfigStore((state) => state.config);
+  const fetchConfig = useConfigStore((state) => state.fetchConfig);
   const apiKeys = useMemo(
     () =>
       value.map((entry) => ({
         id: entry.id || makeClientId(),
+        name: String(entry.name ?? '').trim(),
         key: String(entry.key ?? '').trim(),
         allowedAuthIndices: Array.isArray(entry.allowedAuthIndices)
           ? Array.from(new Set(entry.allowedAuthIndices.map((item) => String(item ?? '').trim()).filter(Boolean)))
@@ -233,15 +560,17 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
   );
 
   const apiKeyInputId = useId();
+  const apiKeyNameInputId = useId();
   const apiKeyHintId = `${apiKeyInputId}-hint`;
   const apiKeyErrorId = `${apiKeyInputId}-error`;
   const [modalOpen, setModalOpen] = useState(false);
   const [editingApiKeyId, setEditingApiKeyId] = useState<string | null>(null);
+  const [nameInputValue, setNameInputValue] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [selectedAuthIndices, setSelectedAuthIndices] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
-  const [credentialOptions, setCredentialOptions] = useState<CredentialOption[]>([]);
-  const [credentialLoading, setCredentialLoading] = useState(false);
+  const [credentialDescriptors, setCredentialDescriptors] = useState<CredentialDescriptor[]>([]);
+  const [credentialLoading, setCredentialLoading] = useState(true);
 
   function generateSecureApiKey(): string {
     const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -252,6 +581,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 
   const openAddModal = () => {
     setEditingApiKeyId(null);
+    setNameInputValue('');
     setInputValue('');
     setSelectedAuthIndices([]);
     setFormError('');
@@ -261,6 +591,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
   const openEditModal = (apiKeyId: string) => {
     const editingEntry = apiKeys.find((entry) => entry.id === apiKeyId);
     setEditingApiKeyId(apiKeyId);
+    setNameInputValue(editingEntry?.name ?? '');
     setInputValue(editingEntry?.key ?? '');
     setSelectedAuthIndices(editingEntry?.allowedAuthIndices ?? []);
     setFormError('');
@@ -269,6 +600,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 
   const closeModal = () => {
     setModalOpen(false);
+    setNameInputValue('');
     setInputValue('');
     setEditingApiKeyId(null);
     setSelectedAuthIndices([]);
@@ -277,16 +609,18 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 
   useEffect(() => {
     let active = true;
-    setCredentialLoading(true);
-    authFilesApi
-      .list()
-      .then((response) => {
+    Promise.all([
+      authFilesApi
+        .list()
+        .then((response) => buildAuthFileCredentialDescriptors(response.files ?? []))
+        .catch(() => []),
+      (config ? Promise.resolve(config) : fetchConfig().catch(() => null))
+        .then((resolvedConfig) => buildProviderCredentialDescriptors(resolvedConfig as Config | null))
+        .catch(() => []),
+    ])
+      .then(([authFileCredentials, providerCredentials]) => {
         if (!active) return;
-        setCredentialOptions(buildCredentialOptions(response.files ?? [], t));
-      })
-      .catch(() => {
-        if (!active) return;
-        setCredentialOptions([]);
+        setCredentialDescriptors(mergeCredentialDescriptors(authFileCredentials, providerCredentials));
       })
       .finally(() => {
         if (!active) return;
@@ -295,7 +629,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [config, fetchConfig]);
 
   const handleDelete = (apiKeyId: string) => {
     onChange(apiKeys.filter((entry) => entry.id !== apiKeyId));
@@ -317,6 +651,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     );
     const nextEntry: VisualApiKeyEntry = {
       id: editingApiKeyId ?? makeClientId(),
+      name: nameInputValue.trim(),
       key: trimmed,
       allowedAuthIndices: normalizedSelection,
     };
@@ -341,6 +676,10 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     setFormError('');
   };
 
+  const credentialOptions = useMemo(
+    () => buildCredentialOptions(credentialDescriptors, t),
+    [credentialDescriptors, t]
+  );
   const credentialOptionMap = useMemo(
     () => new Map(credentialOptions.map((option) => [option.authIndex, option])),
     [credentialOptions]
@@ -392,7 +731,7 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
               <div className="item-meta">
                 <div className="pill">#{index + 1}</div>
                 <div className="item-title">
-                  {t('config_management.visual.api_keys.input_label')}
+                  {entry.name || t('config_management.visual.api_keys.input_label')}
                 </div>
                 <div className="item-subtitle">{maskApiKey(String(entry.key || ''))}</div>
                 <div className="item-subtitle">{renderScopeSummary(entry)}</div>
@@ -451,6 +790,21 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
           </>
         }
       >
+        <div className="form-group">
+          <label htmlFor={apiKeyNameInputId}>
+            {t('config_management.visual.api_keys.name_label')}
+          </label>
+          <input
+            id={apiKeyNameInputId}
+            className="input"
+            placeholder={t('config_management.visual.api_keys.name_placeholder')}
+            value={nameInputValue}
+            onChange={(e) => setNameInputValue(e.target.value)}
+            disabled={disabled}
+          />
+          <div className="hint">{t('config_management.visual.api_keys.name_hint')}</div>
+        </div>
+
         <div className="form-group">
           <label htmlFor={apiKeyInputId}>
             {t('config_management.visual.api_keys.input_label')}

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -399,6 +400,43 @@ func (a *Auth) AccountInfo() (string, string) {
 					p = strings.TrimSpace(p)
 					if p != "" {
 						return "oauth", email + " (" + p + ")"
+					}
+				}
+				return "oauth", email
+			}
+		}
+	}
+
+	// For Codex provider, include plan type to distinguish between personal/team accounts
+	if strings.ToLower(a.Provider) == "codex" {
+		if a.Metadata != nil {
+			email, _ := a.Metadata["email"].(string)
+			email = strings.TrimSpace(email)
+			if email != "" {
+				// Try to extract plan type from id_token claims
+				if idTokenRaw, ok := a.Metadata["id_token"].(string); ok {
+					idToken := strings.TrimSpace(idTokenRaw)
+					if idToken != "" {
+						// Parse JWT to extract plan_type
+						parts := strings.Split(idToken, ".")
+						if len(parts) >= 2 {
+							// Decode the payload (second part) using standard base64url encoding
+							payload := parts[1]
+							// Try to decode and extract plan_type
+							var claims map[string]any
+							if decoded, err := base64.RawURLEncoding.DecodeString(payload); err == nil {
+								if err := json.Unmarshal(decoded, &claims); err == nil {
+									if codexAuth, ok := claims["https://api.openai.com/auth"].(map[string]any); ok {
+										if planType, ok := codexAuth["chatgpt_plan_type"].(string); ok {
+											planType = strings.TrimSpace(planType)
+											if planType != "" {
+												return "oauth", email + " (" + planType + ")"
+											}
+										}
+									}
+								}
+							}
+						}
 					}
 				}
 				return "oauth", email

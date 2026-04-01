@@ -16,11 +16,13 @@ import (
 // ClientAPIKeyConfig describes one incoming client API key and optional auth restrictions.
 // When AllowedAuthIndices is empty, the key may use all available upstream credentials.
 type ClientAPIKeyConfig struct {
+	Name               string   `yaml:"name,omitempty" json:"name,omitempty"`
 	Key                string   `yaml:"key,omitempty" json:"key,omitempty"`
 	AllowedAuthIndices []string `yaml:"allowed-auth-indices,omitempty" json:"allowed-auth-indices,omitempty"`
 }
 
 type clientAPIKeyConfigAlias struct {
+	Name               string   `yaml:"name" json:"name"`
 	Key                string   `yaml:"key" json:"key"`
 	APIKey             string   `yaml:"api-key" json:"api-key"`
 	Value              string   `yaml:"value" json:"value"`
@@ -66,6 +68,7 @@ func (c *ClientAPIKeyConfig) normalize() {
 	if c == nil {
 		return
 	}
+	c.Name = strings.TrimSpace(c.Name)
 	c.Key = strings.TrimSpace(c.Key)
 	c.AllowedAuthIndices = NormalizeAuthIndexList(c.AllowedAuthIndices)
 }
@@ -81,6 +84,7 @@ func (c *ClientAPIKeyConfig) UnmarshalYAML(value *yaml.Node) error {
 		if err := value.Decode(&key); err != nil {
 			return err
 		}
+		c.Name = ""
 		c.Key = strings.TrimSpace(key)
 		c.AllowedAuthIndices = nil
 		return nil
@@ -89,8 +93,10 @@ func (c *ClientAPIKeyConfig) UnmarshalYAML(value *yaml.Node) error {
 		if err := value.Decode(&raw); err != nil {
 			return err
 		}
+		c.Name = strings.TrimSpace(raw.Name)
 		c.Key = strings.TrimSpace(firstNonEmpty(raw.Key, raw.APIKey, raw.Value))
 		c.AllowedAuthIndices = NormalizeAuthIndexList(append(raw.AllowedAuthIndices, raw.AllowedAuths...))
+		c.normalize()
 		return nil
 	default:
 		return fmt.Errorf("invalid api-keys entry")
@@ -103,13 +109,19 @@ func (c ClientAPIKeyConfig) MarshalYAML() (any, error) {
 	if c.Key == "" {
 		return nil, nil
 	}
-	if len(c.AllowedAuthIndices) == 0 {
+	if c.Name == "" && len(c.AllowedAuthIndices) == 0 {
 		return c.Key, nil
 	}
-	return map[string]any{
-		"key":                  c.Key,
-		"allowed-auth-indices": append([]string(nil), c.AllowedAuthIndices...),
-	}, nil
+	out := map[string]any{
+		"key": c.Key,
+	}
+	if c.Name != "" {
+		out["name"] = c.Name
+	}
+	if len(c.AllowedAuthIndices) > 0 {
+		out["allowed-auth-indices"] = append([]string(nil), c.AllowedAuthIndices...)
+	}
+	return out, nil
 }
 
 // UnmarshalJSON supports both legacy string items and structured objects.
@@ -119,6 +131,7 @@ func (c *ClientAPIKeyConfig) UnmarshalJSON(data []byte) error {
 	}
 	var key string
 	if err := json.Unmarshal(data, &key); err == nil {
+		c.Name = ""
 		c.Key = strings.TrimSpace(key)
 		c.AllowedAuthIndices = nil
 		return nil
@@ -128,21 +141,25 @@ func (c *ClientAPIKeyConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	c.Name = strings.TrimSpace(raw.Name)
 	c.Key = strings.TrimSpace(firstNonEmpty(raw.Key, raw.APIKey, raw.Value))
 	c.AllowedAuthIndices = NormalizeAuthIndexList(append(raw.AllowedAuthIndices, raw.AllowedAuths...))
+	c.normalize()
 	return nil
 }
 
 // MarshalJSON emits the legacy string form when no restrictions are configured.
 func (c ClientAPIKeyConfig) MarshalJSON() ([]byte, error) {
 	c.normalize()
-	if len(c.AllowedAuthIndices) == 0 {
+	if c.Name == "" && len(c.AllowedAuthIndices) == 0 {
 		return json.Marshal(c.Key)
 	}
 	return json.Marshal(struct {
+		Name               string   `json:"name,omitempty"`
 		Key                string   `json:"key"`
 		AllowedAuthIndices []string `json:"allowed-auth-indices,omitempty"`
 	}{
+		Name:               c.Name,
 		Key:                c.Key,
 		AllowedAuthIndices: append([]string(nil), c.AllowedAuthIndices...),
 	})

@@ -12,6 +12,7 @@ export interface QuotaExceededConfig {
 }
 
 export interface ClientApiKeyConfig {
+  name?: string;
   key: string;
   allowedAuthIndices?: string[];
 }

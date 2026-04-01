@@ -53,6 +53,7 @@ export interface StreamingConfig {
 
 export type VisualApiKeyEntry = {
   id: string;
+  name: string;
   key: string;
   allowedAuthIndices: string[];
 };

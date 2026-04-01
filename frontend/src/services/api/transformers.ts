@@ -105,6 +105,8 @@ const normalizeClientApiKeys = (input: unknown): ClientApiKeyConfig[] => {
     const key = String(keyRaw ?? '').trim();
     if (!key || seen.has(key)) return;
     seen.add(key);
+    const nameRaw = record ? (record.name ?? record['name']) : undefined;
+    const name = String(nameRaw ?? '').trim();
 
     const allowedRaw = record
       ? (record['allowed-auth-indices'] ??
@@ -116,9 +118,11 @@ const normalizeClientApiKeys = (input: unknown): ClientApiKeyConfig[] => {
       : [];
     const allowedAuthIndices = normalizeExcludedModels(allowedRaw);
     result.push(
-      allowedAuthIndices.length > 0
-        ? { key, allowedAuthIndices }
-        : { key }
+      {
+        ...(name ? { name } : {}),
+        key,
+        ...(allowedAuthIndices.length > 0 ? { allowedAuthIndices } : {}),
+      }
     );
   });
 

@@ -350,12 +350,20 @@ func trimClientAPIKeys(in []config.ClientAPIKeyConfig) []string {
 		if key == "" {
 			continue
 		}
+		name := strings.TrimSpace(in[i].Name)
 		allowed := config.NormalizeAuthIndexList(in[i].AllowedAuthIndices)
-		if len(allowed) == 0 {
+		if name == "" && len(allowed) == 0 {
 			out = append(out, key)
 			continue
 		}
-		out = append(out, key+"|"+strings.Join(allowed, ","))
+		parts := []string{key}
+		if name != "" {
+			parts = append(parts, "name="+name)
+		}
+		if len(allowed) > 0 {
+			parts = append(parts, "allowed="+strings.Join(allowed, ","))
+		}
+		out = append(out, strings.Join(parts, "|"))
 	}
 	return out
 }
