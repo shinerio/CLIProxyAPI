@@ -255,8 +255,29 @@ func (c *Client) GetAPIKeys() ([]string, error) {
 		return nil, err
 	}
 	var result []string
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := json.Unmarshal(raw, &result); err == nil {
+		return result, nil
+	}
+	var mixed []any
+	if err := json.Unmarshal(raw, &mixed); err != nil {
 		return nil, err
+	}
+	result = make([]string, 0, len(mixed))
+	for _, item := range mixed {
+		switch typed := item.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(typed); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		case map[string]any:
+			if key, ok := typed["key"].(string); ok && strings.TrimSpace(key) != "" {
+				result = append(result, strings.TrimSpace(key))
+				continue
+			}
+			if key, ok := typed["api-key"].(string); ok && strings.TrimSpace(key) != "" {
+				result = append(result, strings.TrimSpace(key))
+			}
+		}
 	}
 	return result, nil
 }

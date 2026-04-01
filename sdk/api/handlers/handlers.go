@@ -199,6 +199,31 @@ func requestExecutionMetadata(ctx context.Context) map[string]any {
 	}
 
 	meta := map[string]any{idempotencyKeyMetadataKey: key}
+	if ctx != nil {
+		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
+			if clientAPIKey, exists := ginCtx.Get("apiKey"); exists {
+				if keyText, okText := clientAPIKey.(string); okText && strings.TrimSpace(keyText) != "" {
+					meta[coreexecutor.ClientAPIKeyMetadataKey] = strings.TrimSpace(keyText)
+				}
+			}
+			if accessMetaRaw, exists := ginCtx.Get("accessMetadata"); exists {
+				if accessMeta, okMeta := accessMetaRaw.(map[string]string); okMeta {
+					if rawAllowed := strings.TrimSpace(accessMeta[coreexecutor.AllowedAuthIndicesMetadataKey]); rawAllowed != "" {
+						parts := strings.Split(rawAllowed, ",")
+						allowed := make([]string, 0, len(parts))
+						for _, part := range parts {
+							if trimmed := strings.TrimSpace(part); trimmed != "" {
+								allowed = append(allowed, trimmed)
+							}
+						}
+						if len(allowed) > 0 {
+							meta[coreexecutor.AllowedAuthIndicesMetadataKey] = allowed
+						}
+					}
+				}
+			}
+		}
+	}
 	if pinnedAuthID := pinnedAuthIDFromContext(ctx); pinnedAuthID != "" {
 		meta[coreexecutor.PinnedAuthMetadataKey] = pinnedAuthID
 	}

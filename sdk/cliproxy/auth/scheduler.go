@@ -178,6 +178,7 @@ func (s *authScheduler) pickSingle(ctx context.Context, provider, model string, 
 	providerKey := strings.ToLower(strings.TrimSpace(provider))
 	modelKey := canonicalModelKey(model)
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
+	allowedAuthIndices := allowedAuthIndexSetFromMetadata(opts.Metadata)
 	preferWebsocket := cliproxyexecutor.DownstreamWebsocket(ctx) && providerKey == "codex" && pinnedAuthID == ""
 
 	s.mu.Lock()
@@ -195,6 +196,9 @@ func (s *authScheduler) pickSingle(ctx context.Context, provider, model string, 
 			return false
 		}
 		if pinnedAuthID != "" && entry.auth.ID != pinnedAuthID {
+			return false
+		}
+		if !authAllowedByIndices(entry.auth, allowedAuthIndices) {
 			return false
 		}
 		if len(tried) > 0 {
@@ -220,6 +224,7 @@ func (s *authScheduler) pickMixed(ctx context.Context, providers []string, model
 		return nil, "", &Error{Code: "provider_not_found", Message: "no provider supplied"}
 	}
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
+	allowedAuthIndices := allowedAuthIndexSetFromMetadata(opts.Metadata)
 	modelKey := canonicalModelKey(model)
 
 	s.mu.Lock()
@@ -238,6 +243,9 @@ func (s *authScheduler) pickMixed(ctx context.Context, providers []string, model
 			if entry == nil || entry.auth == nil || entry.auth.ID != pinnedAuthID {
 				return false
 			}
+			if !authAllowedByIndices(entry.auth, allowedAuthIndices) {
+				return false
+			}
 			if len(tried) == 0 {
 				return true
 			}
@@ -250,7 +258,16 @@ func (s *authScheduler) pickMixed(ctx context.Context, providers []string, model
 		return nil, "", shard.unavailableErrorLocked("mixed", model, predicate)
 	}
 
-	predicate := triedPredicate(tried)
+	triedOnly := triedPredicate(tried)
+	predicate := func(entry *scheduledAuth) bool {
+		if !triedOnly(entry) {
+			return false
+		}
+		if entry == nil || entry.auth == nil {
+			return false
+		}
+		return authAllowedByIndices(entry.auth, allowedAuthIndices)
+	}
 	candidateShards := make([]*modelScheduler, len(normalized))
 	bestPriority := 0
 	hasCandidate := false

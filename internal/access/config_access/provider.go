@@ -3,8 +3,10 @@ package configaccess
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 
+	internalconfig "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
 )
@@ -16,33 +18,33 @@ func Register(cfg *sdkconfig.SDKConfig) {
 		return
 	}
 
-	keys := normalizeKeys(cfg.APIKeys)
-	if len(keys) == 0 {
+	entries := normalizeEntries(cfg.APIKeys)
+	if len(entries) == 0 {
 		sdkaccess.UnregisterProvider(sdkaccess.AccessProviderTypeConfigAPIKey)
 		return
 	}
 
 	sdkaccess.RegisterProvider(
 		sdkaccess.AccessProviderTypeConfigAPIKey,
-		newProvider(sdkaccess.DefaultAccessProviderName, keys),
+		newProvider(sdkaccess.DefaultAccessProviderName, entries),
 	)
 }
 
 type provider struct {
-	name string
-	keys map[string]struct{}
+	name    string
+	entries map[string]internalconfig.ClientAPIKeyConfig
 }
 
-func newProvider(name string, keys []string) *provider {
+func newProvider(name string, entries []internalconfig.ClientAPIKeyConfig) *provider {
 	providerName := strings.TrimSpace(name)
 	if providerName == "" {
 		providerName = sdkaccess.DefaultAccessProviderName
 	}
-	keySet := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		keySet[key] = struct{}{}
+	entryMap := make(map[string]internalconfig.ClientAPIKeyConfig, len(entries))
+	for _, entry := range entries {
+		entryMap[entry.Key] = entry
 	}
-	return &provider{name: providerName, keys: keySet}
+	return &provider{name: providerName, entries: entryMap}
 }
 
 func (p *provider) Identifier() string {
@@ -56,7 +58,7 @@ func (p *provider) Authenticate(_ context.Context, r *http.Request) (*sdkaccess.
 	if p == nil {
 		return nil, sdkaccess.NewNotHandledError()
 	}
-	if len(p.keys) == 0 {
+	if len(p.entries) == 0 {
 		return nil, sdkaccess.NewNotHandledError()
 	}
 	authHeader := r.Header.Get("Authorization")
@@ -89,13 +91,19 @@ func (p *provider) Authenticate(_ context.Context, r *http.Request) (*sdkaccess.
 		if candidate.value == "" {
 			continue
 		}
-		if _, ok := p.keys[candidate.value]; ok {
+		if entry, ok := p.entries[candidate.value]; ok {
+			metadata := map[string]string{
+				"source": candidate.source,
+			}
+			if len(entry.AllowedAuthIndices) > 0 {
+				allowed := append([]string(nil), entry.AllowedAuthIndices...)
+				sort.Strings(allowed)
+				metadata["allowed_auth_indices"] = strings.Join(allowed, ",")
+			}
 			return &sdkaccess.Result{
 				Provider:  p.Identifier(),
 				Principal: candidate.value,
-				Metadata: map[string]string{
-					"source": candidate.source,
-				},
+				Metadata:  metadata,
 			}, nil
 		}
 	}
@@ -117,22 +125,23 @@ func extractBearerToken(header string) string {
 	return strings.TrimSpace(parts[1])
 }
 
-func normalizeKeys(keys []string) []string {
-	if len(keys) == 0 {
+func normalizeEntries(entries []internalconfig.ClientAPIKeyConfig) []internalconfig.ClientAPIKeyConfig {
+	if len(entries) == 0 {
 		return nil
 	}
-	normalized := make([]string, 0, len(keys))
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		trimmedKey := strings.TrimSpace(key)
-		if trimmedKey == "" {
+	normalized := make([]internalconfig.ClientAPIKeyConfig, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		entry.Key = strings.TrimSpace(entry.Key)
+		entry.AllowedAuthIndices = internalconfig.NormalizeAuthIndexList(entry.AllowedAuthIndices)
+		if entry.Key == "" {
 			continue
 		}
-		if _, exists := seen[trimmedKey]; exists {
+		if _, exists := seen[entry.Key]; exists {
 			continue
 		}
-		seen[trimmedKey] = struct{}{}
-		normalized = append(normalized, trimmedKey)
+		seen[entry.Key] = struct{}{}
+		normalized = append(normalized, entry)
 	}
 	if len(normalized) == 0 {
 		return nil

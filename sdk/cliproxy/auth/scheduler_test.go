@@ -208,6 +208,43 @@ func TestSchedulerPick_CodexWebsocketPrefersWebsocketEnabledSubset(t *testing.T)
 	}
 }
 
+func TestSchedulerPick_RespectsAllowedAuthIndices(t *testing.T) {
+	t.Parallel()
+
+	authA := &Auth{ID: "gemini-a", Provider: "gemini"}
+	authB := &Auth{ID: "gemini-b", Provider: "gemini"}
+	indexB := authB.EnsureIndex()
+
+	registerSchedulerModels(t, "gemini", "gemini-2.5-pro", authA.ID, authB.ID)
+	scheduler := newSchedulerForTest(&RoundRobinSelector{}, authA, authB)
+
+	opts := cliproxyexecutor.Options{
+		Metadata: map[string]any{
+			cliproxyexecutor.AllowedAuthIndicesMetadataKey: []string{indexB},
+		},
+	}
+
+	got, errPick := scheduler.pickSingle(context.Background(), "gemini", "gemini-2.5-pro", opts, nil)
+	if errPick != nil {
+		t.Fatalf("pickSingle() error = %v", errPick)
+	}
+	if got == nil {
+		t.Fatal("pickSingle() auth = nil")
+	}
+	if got.ID != authB.ID {
+		t.Fatalf("pickSingle() auth.ID = %q, want %q", got.ID, authB.ID)
+	}
+
+	opts.Metadata[cliproxyexecutor.AllowedAuthIndicesMetadataKey] = []string{"missing"}
+	got, errPick = scheduler.pickSingle(context.Background(), "gemini", "gemini-2.5-pro", opts, nil)
+	if errPick == nil {
+		t.Fatal("pickSingle() error = nil, want auth_not_found")
+	}
+	if got != nil {
+		t.Fatalf("pickSingle() auth = %#v, want nil", got)
+	}
+}
+
 func TestSchedulerPick_MixedProvidersUsesWeightedProviderRotationOverReadyCandidates(t *testing.T) {
 	t.Parallel()
 

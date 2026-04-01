@@ -105,17 +105,35 @@ func (h *Handler) deleteFromStringList(c *gin.Context, target *[]string, after f
 }
 
 // api-keys
-func (h *Handler) GetAPIKeys(c *gin.Context) { c.JSON(200, gin.H{"api-keys": h.cfg.APIKeys}) }
+func (h *Handler) GetAPIKeys(c *gin.Context) { c.JSON(200, gin.H{"api-keys": h.cfg.PlainAPIKeys()}) }
 func (h *Handler) PutAPIKeys(c *gin.Context) {
 	h.putStringList(c, func(v []string) {
-		h.cfg.APIKeys = append([]string(nil), v...)
+		next := make([]config.ClientAPIKeyConfig, 0, len(v))
+		for _, key := range v {
+			next = append(next, config.ClientAPIKeyConfig{Key: key})
+		}
+		h.cfg.APIKeys = next
 	}, nil)
 }
 func (h *Handler) PatchAPIKeys(c *gin.Context) {
-	h.patchStringList(c, &h.cfg.APIKeys, func() {})
+	keys := h.cfg.PlainAPIKeys()
+	h.patchStringList(c, &keys, func() {
+		next := make([]config.ClientAPIKeyConfig, 0, len(keys))
+		for _, key := range keys {
+			next = append(next, config.ClientAPIKeyConfig{Key: key})
+		}
+		h.cfg.APIKeys = next
+	})
 }
 func (h *Handler) DeleteAPIKeys(c *gin.Context) {
-	h.deleteFromStringList(c, &h.cfg.APIKeys, func() {})
+	keys := h.cfg.PlainAPIKeys()
+	h.deleteFromStringList(c, &keys, func() {
+		next := make([]config.ClientAPIKeyConfig, 0, len(keys))
+		for _, key := range keys {
+			next = append(next, config.ClientAPIKeyConfig{Key: key})
+		}
+		h.cfg.APIKeys = next
+	})
 }
 
 // gemini-api-key: []GeminiKey

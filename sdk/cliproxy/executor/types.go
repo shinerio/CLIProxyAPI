@@ -13,6 +13,10 @@ const RequestedModelMetadataKey = "requested_model"
 const (
 	// PinnedAuthMetadataKey locks execution to a specific auth ID.
 	PinnedAuthMetadataKey = "pinned_auth_id"
+	// ClientAPIKeyMetadataKey stores the authenticated downstream client API key.
+	ClientAPIKeyMetadataKey = "client_api_key"
+	// AllowedAuthIndicesMetadataKey restricts selection to the listed auth_index values.
+	AllowedAuthIndicesMetadataKey = "allowed_auth_indices"
 	// SelectedAuthMetadataKey stores the auth ID selected by the scheduler.
 	SelectedAuthMetadataKey = "selected_auth_id"
 	// SelectedAuthCallbackMetadataKey carries an optional callback invoked with the selected auth ID.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -1322,6 +1323,65 @@ func hasRequestedModelMetadata(meta map[string]any) bool {
 	}
 }
 
+func allowedAuthIndexSetFromMetadata(meta map[string]any) map[string]struct{} {
+	if len(meta) == 0 {
+		return nil
+	}
+	raw, ok := meta[cliproxyexecutor.AllowedAuthIndicesMetadataKey]
+	if !ok || raw == nil {
+		return nil
+	}
+	values := make([]string, 0, 8)
+	switch typed := raw.(type) {
+	case []string:
+		values = append(values, typed...)
+	case []any:
+		for _, item := range typed {
+			if item == nil {
+				continue
+			}
+			values = append(values, fmt.Sprint(item))
+		}
+	case string:
+		values = append(values, strings.Split(typed, ",")...)
+	default:
+		values = append(values, fmt.Sprint(typed))
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		out[trimmed] = struct{}{}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func authAllowedByIndices(auth *Auth, allowed map[string]struct{}) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	if auth == nil {
+		return false
+	}
+	index := strings.TrimSpace(auth.Index)
+	if index == "" {
+		index = auth.EnsureIndex()
+	}
+	if index == "" {
+		return false
+	}
+	_, ok := allowed[index]
+	return ok
+}
+
 func pinnedAuthIDFromMetadata(meta map[string]any) string {
 	if len(meta) == 0 {
 		return ""
@@ -2248,6 +2308,7 @@ func shouldRetrySchedulerPick(err error) bool {
 
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
+	allowedAuthIndices := allowedAuthIndexSetFromMetadata(opts.Metadata)
 
 	m.mu.RLock()
 	executor, okExecutor := m.executors[provider]
@@ -2270,6 +2331,9 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
+			continue
+		}
+		if !authAllowedByIndices(candidate, allowedAuthIndices) {
 			continue
 		}
 		if _, used := tried[candidate.ID]; used {
@@ -2339,6 +2403,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 
 func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, string, error) {
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
+	allowedAuthIndices := allowedAuthIndexSetFromMetadata(opts.Metadata)
 
 	providerSet := make(map[string]struct{}, len(providers))
 	for _, provider := range providers {
@@ -2368,6 +2433,9 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 			continue
 		}
 		if pinnedAuthID != "" && candidate.ID != pinnedAuthID {
+			continue
+		}
+		if !authAllowedByIndices(candidate, allowedAuthIndices) {
 			continue
 		}
 		providerKey := strings.TrimSpace(strings.ToLower(candidate.Provider))

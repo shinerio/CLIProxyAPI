@@ -4,6 +4,150 @@
 // debug settings, proxy configuration, and API keys.
 package config
 
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// ClientAPIKeyConfig describes one incoming client API key and optional auth restrictions.
+// When AllowedAuthIndices is empty, the key may use all available upstream credentials.
+type ClientAPIKeyConfig struct {
+	Key                string   `yaml:"key,omitempty" json:"key,omitempty"`
+	AllowedAuthIndices []string `yaml:"allowed-auth-indices,omitempty" json:"allowed-auth-indices,omitempty"`
+}
+
+type clientAPIKeyConfigAlias struct {
+	Key                string   `yaml:"key" json:"key"`
+	APIKey             string   `yaml:"api-key" json:"api-key"`
+	Value              string   `yaml:"value" json:"value"`
+	AllowedAuthIndices []string `yaml:"allowed-auth-indices" json:"allowed-auth-indices"`
+	AllowedAuths       []string `yaml:"allowed-auths" json:"allowed-auths"`
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+// NormalizeAuthIndexList trims, deduplicates, and sorts auth_index lists.
+func NormalizeAuthIndexList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (c *ClientAPIKeyConfig) normalize() {
+	if c == nil {
+		return
+	}
+	c.Key = strings.TrimSpace(c.Key)
+	c.AllowedAuthIndices = NormalizeAuthIndexList(c.AllowedAuthIndices)
+}
+
+// UnmarshalYAML supports both legacy string items and structured objects.
+func (c *ClientAPIKeyConfig) UnmarshalYAML(value *yaml.Node) error {
+	if c == nil {
+		return nil
+	}
+	switch value.Kind {
+	case yaml.ScalarNode:
+		var key string
+		if err := value.Decode(&key); err != nil {
+			return err
+		}
+		c.Key = strings.TrimSpace(key)
+		c.AllowedAuthIndices = nil
+		return nil
+	case yaml.MappingNode:
+		var raw clientAPIKeyConfigAlias
+		if err := value.Decode(&raw); err != nil {
+			return err
+		}
+		c.Key = strings.TrimSpace(firstNonEmpty(raw.Key, raw.APIKey, raw.Value))
+		c.AllowedAuthIndices = NormalizeAuthIndexList(append(raw.AllowedAuthIndices, raw.AllowedAuths...))
+		return nil
+	default:
+		return fmt.Errorf("invalid api-keys entry")
+	}
+}
+
+// MarshalYAML emits the legacy scalar form when no restrictions are configured.
+func (c ClientAPIKeyConfig) MarshalYAML() (any, error) {
+	c.normalize()
+	if c.Key == "" {
+		return nil, nil
+	}
+	if len(c.AllowedAuthIndices) == 0 {
+		return c.Key, nil
+	}
+	return map[string]any{
+		"key":                  c.Key,
+		"allowed-auth-indices": append([]string(nil), c.AllowedAuthIndices...),
+	}, nil
+}
+
+// UnmarshalJSON supports both legacy string items and structured objects.
+func (c *ClientAPIKeyConfig) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return nil
+	}
+	var key string
+	if err := json.Unmarshal(data, &key); err == nil {
+		c.Key = strings.TrimSpace(key)
+		c.AllowedAuthIndices = nil
+		return nil
+	}
+
+	var raw clientAPIKeyConfigAlias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.Key = strings.TrimSpace(firstNonEmpty(raw.Key, raw.APIKey, raw.Value))
+	c.AllowedAuthIndices = NormalizeAuthIndexList(append(raw.AllowedAuthIndices, raw.AllowedAuths...))
+	return nil
+}
+
+// MarshalJSON emits the legacy string form when no restrictions are configured.
+func (c ClientAPIKeyConfig) MarshalJSON() ([]byte, error) {
+	c.normalize()
+	if len(c.AllowedAuthIndices) == 0 {
+		return json.Marshal(c.Key)
+	}
+	return json.Marshal(struct {
+		Key                string   `json:"key"`
+		AllowedAuthIndices []string `json:"allowed-auth-indices,omitempty"`
+	}{
+		Key:                c.Key,
+		AllowedAuthIndices: append([]string(nil), c.AllowedAuthIndices...),
+	})
+}
+
 // SDKConfig represents the application's configuration, loaded from a YAML file.
 type SDKConfig struct {
 	// ProxyURL is the URL of an optional proxy server to use for outbound requests.
@@ -17,8 +161,9 @@ type SDKConfig struct {
 	// RequestLog enables or disables detailed request logging functionality.
 	RequestLog bool `yaml:"request-log" json:"request-log"`
 
-	// APIKeys is a list of keys for authenticating clients to this proxy server.
-	APIKeys []string `yaml:"api-keys" json:"api-keys"`
+	// APIKeys is a list of client API keys accepted by this proxy server.
+	// Each entry may optionally restrict which upstream auth_index values it can use.
+	APIKeys []ClientAPIKeyConfig `yaml:"api-keys" json:"api-keys"`
 
 	// PassthroughHeaders controls whether upstream response headers are forwarded to downstream clients.
 	// Default is false (disabled).
@@ -42,4 +187,50 @@ type StreamingConfig struct {
 	// to allow auth rotation / transient recovery.
 	// <= 0 disables bootstrap retries. Default is 0.
 	BootstrapRetries int `yaml:"bootstrap-retries,omitempty" json:"bootstrap-retries,omitempty"`
+}
+
+// PlainAPIKeys returns the configured client key values without restriction metadata.
+func (c *SDKConfig) PlainAPIKeys() []string {
+	if c == nil || len(c.APIKeys) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(c.APIKeys))
+	out := make([]string, 0, len(c.APIKeys))
+	for i := range c.APIKeys {
+		key := strings.TrimSpace(c.APIKeys[i].Key)
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// NormalizeAPIKeys trims, deduplicates, and canonicalizes configured client API keys.
+func (c *SDKConfig) NormalizeAPIKeys() {
+	if c == nil || len(c.APIKeys) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, len(c.APIKeys))
+	out := make([]ClientAPIKeyConfig, 0, len(c.APIKeys))
+	for i := range c.APIKeys {
+		entry := c.APIKeys[i]
+		entry.normalize()
+		if entry.Key == "" {
+			continue
+		}
+		if _, exists := seen[entry.Key]; exists {
+			continue
+		}
+		seen[entry.Key] = struct{}{}
+		out = append(out, entry)
+	}
+	c.APIKeys = out
 }

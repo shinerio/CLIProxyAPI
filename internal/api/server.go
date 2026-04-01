@@ -1037,6 +1037,7 @@ func AuthMiddleware(manager *sdkaccess.Manager) gin.HandlerFunc {
 			if result != nil {
 				c.Set("apiKey", result.Principal)
 				c.Set("accessProvider", result.Provider)
+				c.Set("clientApiKey", result.Principal)
 				if len(result.Metadata) > 0 {
 					c.Set("accessMetadata", result.Metadata)
 				}
