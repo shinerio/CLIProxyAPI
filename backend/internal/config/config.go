@@ -80,6 +80,10 @@ type Config struct {
 	// Zero uses the default interval; negative values disable periodic flush and keep shutdown-only persistence.
 	UsageStatisticsFlushIntervalSeconds int `yaml:"usage-statistics-flush-interval-seconds" json:"usage-statistics-flush-interval-seconds"`
 
+	// UsageStatisticsMaxDetails controls how many recent request details are retained in memory and snapshots.
+	// The aggregate counters and trend buckets are preserved regardless of this limit.
+	UsageStatisticsMaxDetails int `yaml:"usage-statistics-max-details" json:"usage-statistics-max-details"`
+
 	// DisableCooling disables quota cooldown scheduling when true.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 
@@ -597,6 +601,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.UsageStatisticsPersist = false
 	cfg.UsageStatisticsPath = ""
 	cfg.UsageStatisticsFlushIntervalSeconds = 10
+	cfg.UsageStatisticsMaxDetails = 500
 	cfg.DisableCooling = false
 	cfg.Pprof.Enable = false
 	cfg.Pprof.Addr = DefaultPprofAddr

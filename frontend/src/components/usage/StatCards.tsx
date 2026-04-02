@@ -3,13 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import { IconDiamond, IconDollarSign, IconSatellite, IconTimer, IconTrendingUp } from '@/components/ui/icons';
 import {
+  calculateAllTimePerMinuteRates,
   formatCompactNumber,
   formatPerMinuteValue,
   formatUsd,
-  calculateCost,
-  collectUsageDetails,
-  extractTotalTokens,
-  resolveUsageDetailTimestampMs,
+  calculateRecentPerMinuteRates,
+  calculateTokenBreakdown,
+  calculateTotalCost,
   type UsageTimeRange,
   type ModelPrice
 } from '@/utils/usage';
@@ -34,7 +34,6 @@ export interface StatCardsProps {
   usage: UsagePayload | null;
   loading: boolean;
   modelPrices: Record<string, ModelPrice>;
-  nowMs: number;
   timeRange: UsageTimeRange;
   sparklines: {
     requests: SparklineBundle | null;
@@ -51,7 +50,7 @@ const FIXED_WINDOW_MINUTES: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7d': 7 * 24 * 60
 };
 
-export function StatCards({ usage, loading, modelPrices, nowMs, timeRange, sparklines }: StatCardsProps) {
+export function StatCards({ usage, loading, modelPrices, timeRange, sparklines }: StatCardsProps) {
   const { t } = useTranslation();
 
   const hasPrices = Object.keys(modelPrices).length > 0;
@@ -66,59 +65,20 @@ export function StatCards({ usage, loading, modelPrices, nowMs, timeRange, spark
     };
 
     if (!usage) return empty;
-    const details = collectUsageDetails(usage);
-    if (!details.length) return empty;
-
-    let cachedTokens = 0;
-    let reasoningTokens = 0;
-    let totalCost = 0;
-    let requestCount = 0;
-    let tokenCount = 0;
-    let oldestTimestamp = Number.POSITIVE_INFINITY;
-
-    details.forEach((detail) => {
-      const tokens = detail.tokens;
-      cachedTokens += Math.max(
-        typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-        typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
-      );
-      if (typeof tokens.reasoning_tokens === 'number') {
-        reasoningTokens += tokens.reasoning_tokens;
-      }
-
-      const timestamp = resolveUsageDetailTimestampMs(detail);
-      if (Number.isFinite(timestamp) && timestamp > 0 && (!Number.isFinite(nowMs) || nowMs <= 0 || timestamp <= nowMs)) {
-        requestCount += 1;
-        tokenCount += extractTotalTokens(detail);
-        if (timestamp < oldestTimestamp) {
-          oldestTimestamp = timestamp;
-        }
-      }
-
-      if (hasPrices) {
-        totalCost += calculateCost(detail, modelPrices);
-      }
-    });
 
     const windowMinutes =
       timeRange === 'all'
-        ? Number.isFinite(oldestTimestamp) && Number.isFinite(nowMs) && nowMs > 0
-          ? Math.max((nowMs - oldestTimestamp) / 60000, 1)
-          : Math.max(requestCount, 1)
+        ? 0
         : FIXED_WINDOW_MINUTES[timeRange];
-    const denominator = windowMinutes > 0 ? windowMinutes : 1;
     return {
-      tokenBreakdown: { cachedTokens, reasoningTokens },
-      rateStats: {
-        rpm: requestCount / denominator,
-        tpm: tokenCount / denominator,
-        windowMinutes,
-        requestCount,
-        tokenCount
-      },
-      totalCost
+      tokenBreakdown: calculateTokenBreakdown(usage),
+      rateStats:
+        timeRange === 'all'
+          ? calculateAllTimePerMinuteRates(usage)
+          : calculateRecentPerMinuteRates(windowMinutes, usage),
+      totalCost: hasPrices ? calculateTotalCost(usage, modelPrices) : 0
     };
-  }, [hasPrices, modelPrices, nowMs, timeRange, usage]);
+  }, [hasPrices, modelPrices, timeRange, usage]);
 
   const statsCards: StatCardData[] = [
     {

@@ -82,6 +82,10 @@ usage-statistics-path: ""
 # How often to flush usage statistics to disk. Default is 10. Set to -1 for shutdown-only persistence.
 usage-statistics-flush-interval-seconds: 10
 
+# How many recent request details are retained in memory and exported snapshots. Aggregated counters
+# and trend buckets are retained regardless. Set to 0 to disable per-request detail retention.
+usage-statistics-max-details: 500
+
 # Proxy URL. Supports socks5/http/https protocols. Example: socks5://user:pass@192.168.1.1:1080/
 # Per-entry proxy-url also supports "direct" or "none" to bypass both the global proxy-url and environment proxies explicitly.
 proxy-url: ""

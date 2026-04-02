@@ -3,6 +3,9 @@
 ## Project Structure & Module Organization
 This workspace is split into two projects. `backend/` is the Go service: `cmd/server` is the main entrypoint, `internal/` holds application code, `sdk/` exposes reusable packages, `examples/` contains sample integrations, and `test/` is for cross-package coverage. `frontend/` is the management UI built with Vite + React + TypeScript; main code lives in `frontend/src/` with feature code in `pages/`, `components/`, `services/api/`, `stores/`, and `i18n/locales/`.
 
+## Metrics Guidance
+For any change that affects usage metrics, usage retention, dashboard totals, RPM/TPM, service health, or trend charts, follow `docs/metric.md` as the source of truth for required behavior and compatibility constraints.
+
 ## Build, Test, and Development Commands
 - `cd backend && go run ./cmd/server -config ./config.yaml`: run the API locally.
 - `cd backend && go build ./cmd/server`: build the backend binary.

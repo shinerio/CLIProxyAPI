@@ -202,6 +202,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	for i := range opts {
 		opts[i](optionState)
 	}
+	usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
+	usage.SetRetainedRequestDetailsLimit(cfg.UsageStatisticsMaxDetails)
 	// Set gin mode
 	if !cfg.Debug {
 		gin.SetMode(gin.ReleaseMode)
@@ -530,6 +532,10 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/usage-statistics-enabled", s.mgmt.GetUsageStatisticsEnabled)
 		mgmt.PUT("/usage-statistics-enabled", s.mgmt.PutUsageStatisticsEnabled)
 		mgmt.PATCH("/usage-statistics-enabled", s.mgmt.PutUsageStatisticsEnabled)
+
+		mgmt.GET("/usage-statistics-max-details", s.mgmt.GetUsageStatisticsMaxDetails)
+		mgmt.PUT("/usage-statistics-max-details", s.mgmt.PutUsageStatisticsMaxDetails)
+		mgmt.PATCH("/usage-statistics-max-details", s.mgmt.PutUsageStatisticsMaxDetails)
 
 		mgmt.GET("/proxy-url", s.mgmt.GetProxyURL)
 		mgmt.PUT("/proxy-url", s.mgmt.PutProxyURL)
@@ -1042,6 +1048,9 @@ func (s *Server) UpdateClients(cfg *config.Config) {
 
 	if oldCfg == nil || oldCfg.UsageStatisticsEnabled != cfg.UsageStatisticsEnabled {
 		usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
+	}
+	if oldCfg == nil || oldCfg.UsageStatisticsMaxDetails != cfg.UsageStatisticsMaxDetails {
+		usage.SetRetainedRequestDetailsLimit(cfg.UsageStatisticsMaxDetails)
 	}
 
 	if s.requestLogger != nil && (oldCfg == nil || oldCfg.ErrorLogsMaxFiles != cfg.ErrorLogsMaxFiles) {

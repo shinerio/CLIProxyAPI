@@ -414,6 +414,19 @@ export const normalizeConfigResponse = (raw: unknown): Config => {
   config.usageStatisticsEnabled = normalizeBoolean(
     raw['usage-statistics-enabled'] ?? raw.usageStatisticsEnabled
   );
+  const usageStatisticsMaxDetails =
+    raw['usage-statistics-max-details'] ?? raw.usageStatisticsMaxDetails;
+  if (typeof usageStatisticsMaxDetails === 'number' && Number.isFinite(usageStatisticsMaxDetails)) {
+    config.usageStatisticsMaxDetails = usageStatisticsMaxDetails;
+  } else if (
+    typeof usageStatisticsMaxDetails === 'string' &&
+    usageStatisticsMaxDetails.trim() !== ''
+  ) {
+    const parsed = Number(usageStatisticsMaxDetails);
+    if (Number.isFinite(parsed)) {
+      config.usageStatisticsMaxDetails = parsed;
+    }
+  }
   config.requestLog = normalizeBoolean(raw['request-log'] ?? raw.requestLog);
   config.loggingToFile = normalizeBoolean(raw['logging-to-file'] ?? raw.loggingToFile);
   const logsMaxTotalSizeMb = raw['logs-max-total-size-mb'] ?? raw.logsMaxTotalSizeMb;

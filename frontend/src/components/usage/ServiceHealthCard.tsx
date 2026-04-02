@@ -2,8 +2,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  collectUsageDetails,
-  calculateServiceHealthData,
+  calculateServiceHealthDataFromUsage,
   type ServiceHealthData,
   type StatusBlockDetail,
 } from '@/utils/usage';
@@ -65,8 +64,7 @@ export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
   const gridRef = useRef<HTMLDivElement>(null);
 
   const healthData: ServiceHealthData = useMemo(() => {
-    const details = usage ? collectUsageDetails(usage) : [];
-    return calculateServiceHealthData(details);
+    return calculateServiceHealthDataFromUsage(usage);
   }, [usage]);
 
   const hasData = healthData.totalSuccess + healthData.totalFailure > 0;

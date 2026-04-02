@@ -209,6 +209,10 @@ export function VisualConfigEditor({
 
   const portError = getValidationMessage(t, validationErrors?.port);
   const logsMaxSizeError = getValidationMessage(t, validationErrors?.logsMaxTotalSizeMb);
+  const usageStatisticsMaxDetailsError = getValidationMessage(
+    t,
+    validationErrors?.usageStatisticsMaxDetails
+  );
   const requestRetryError = getValidationMessage(t, validationErrors?.requestRetry);
   const maxRetryCredentialsError = getValidationMessage(t, validationErrors?.maxRetryCredentials);
   const maxRetryIntervalError = getValidationMessage(t, validationErrors?.maxRetryInterval);
@@ -800,6 +804,18 @@ export function VisualConfigEditor({
                   onChange={(e) => onChange({ logsMaxTotalSizeMb: e.target.value })}
                   disabled={disabled}
                   error={logsMaxSizeError}
+                />
+                <Input
+                  label={t('config_management.visual.sections.system.usage_statistics_max_details')}
+                  type="number"
+                  placeholder="500"
+                  value={values.usageStatisticsMaxDetails}
+                  onChange={(e) => onChange({ usageStatisticsMaxDetails: e.target.value })}
+                  disabled={disabled}
+                  error={usageStatisticsMaxDetailsError}
+                  hint={t(
+                    'config_management.visual.sections.system.usage_statistics_max_details_desc'
+                  )}
                 />
               </SectionGrid>
             </SectionStack>

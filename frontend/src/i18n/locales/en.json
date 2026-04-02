@@ -1229,7 +1229,9 @@
           "logging_to_file_desc": "Save logs to files",
           "usage_statistics": "Usage Statistics",
           "usage_statistics_desc": "Collect usage statistics",
-          "logs_max_size": "Log File Size Limit (MB)"
+          "logs_max_size": "Log File Size Limit (MB)",
+          "usage_statistics_max_details": "Usage Detail Retention",
+          "usage_statistics_max_details_desc": "Maximum number of recent request details to retain. Set to 0 to keep only aggregates."
         },
         "network": {
           "title": "Network Configuration",

@@ -175,6 +175,7 @@ export function getVisualConfigValidationErrors(
   return {
     port: getPortError(values.port),
     logsMaxTotalSizeMb: getNonNegativeIntegerError(values.logsMaxTotalSizeMb),
+    usageStatisticsMaxDetails: getNonNegativeIntegerError(values.usageStatisticsMaxDetails),
     requestRetry: getNonNegativeIntegerError(values.requestRetry),
     maxRetryCredentials: getNonNegativeIntegerError(values.maxRetryCredentials),
     maxRetryInterval: getNonNegativeIntegerError(values.maxRetryInterval),
@@ -527,6 +528,7 @@ export function useVisualConfig() {
         loggingToFile: Boolean(parsed['logging-to-file']),
         logsMaxTotalSizeMb: String(parsed['logs-max-total-size-mb'] ?? ''),
         usageStatisticsEnabled: Boolean(parsed['usage-statistics-enabled']),
+        usageStatisticsMaxDetails: String(parsed['usage-statistics-max-details'] ?? 500),
 
         proxyUrl: typeof parsed['proxy-url'] === 'string' ? parsed['proxy-url'] : '',
         forceModelPrefix: Boolean(parsed['force-model-prefix']),
@@ -648,6 +650,7 @@ export function useVisualConfig() {
         setBooleanInDoc(doc, ['logging-to-file'], values.loggingToFile);
         setIntFromStringInDoc(doc, ['logs-max-total-size-mb'], values.logsMaxTotalSizeMb);
         setBooleanInDoc(doc, ['usage-statistics-enabled'], values.usageStatisticsEnabled);
+        setIntFromStringInDoc(doc, ['usage-statistics-max-details'], values.usageStatisticsMaxDetails);
 
         setStringInDoc(doc, ['proxy-url'], values.proxyUrl);
         setBooleanInDoc(doc, ['force-model-prefix'], values.forceModelPrefix);

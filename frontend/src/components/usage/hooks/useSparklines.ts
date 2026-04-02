@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { collectUsageDetails, extractTotalTokens } from '@/utils/usage';
+import { buildRecentMinuteSeries } from '@/utils/usage';
 import type { UsagePayload } from './useUsageData';
 
 export interface SparklineData {
@@ -38,39 +38,7 @@ export interface UseSparklinesReturn {
 export function useSparklines({ usage, loading, nowMs }: UseSparklinesOptions): UseSparklinesReturn {
   const lastHourSeries = useMemo(() => {
     if (!usage) return { labels: [], requests: [], tokens: [] };
-    if (!Number.isFinite(nowMs) || nowMs <= 0) {
-      return { labels: [], requests: [], tokens: [] };
-    }
-    const details = collectUsageDetails(usage);
-    if (!details.length) return { labels: [], requests: [], tokens: [] };
-
-    const windowMinutes = 60;
-    const now = nowMs;
-    const windowStart = now - windowMinutes * 60 * 1000;
-    const requestBuckets = new Array(windowMinutes).fill(0);
-    const tokenBuckets = new Array(windowMinutes).fill(0);
-
-    details.forEach((detail) => {
-      const timestamp = detail.__timestampMs ?? 0;
-      if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > now) {
-        return;
-      }
-      const minuteIndex = Math.min(
-        windowMinutes - 1,
-        Math.floor((timestamp - windowStart) / 60000)
-      );
-      requestBuckets[minuteIndex] += 1;
-      tokenBuckets[minuteIndex] += extractTotalTokens(detail);
-    });
-
-    const labels = requestBuckets.map((_, idx) => {
-      const date = new Date(windowStart + (idx + 1) * 60000);
-      const h = date.getHours().toString().padStart(2, '0');
-      const m = date.getMinutes().toString().padStart(2, '0');
-      return `${h}:${m}`;
-    });
-
-    return { labels, requests: requestBuckets, tokens: tokenBuckets };
+    return buildRecentMinuteSeries(usage, nowMs, 60);
   }, [nowMs, usage]);
 
   const buildSparkline = useCallback(

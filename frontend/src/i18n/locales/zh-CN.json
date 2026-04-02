@@ -1229,7 +1229,9 @@
           "logging_to_file_desc": "将日志保存到文件",
           "usage_statistics": "使用统计",
           "usage_statistics_desc": "收集使用统计信息",
-          "logs_max_size": "日志文件大小限制 (MB)"
+          "logs_max_size": "日志文件大小限制 (MB)",
+          "usage_statistics_max_details": "使用统计明细保留上限",
+          "usage_statistics_max_details_desc": "最多保留多少条最近请求明细。设为 0 时仅保留聚合统计。"
         },
         "network": {
           "title": "网络配置",

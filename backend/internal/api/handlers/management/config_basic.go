@@ -122,7 +122,27 @@ func (h *Handler) PutUsageStatisticsEnabled(c *gin.Context) {
 	h.updateBoolField(c, func(v bool) { h.cfg.UsageStatisticsEnabled = v })
 }
 
-// UsageStatisticsEnabled
+// UsageStatisticsMaxDetails
+func (h *Handler) GetUsageStatisticsMaxDetails(c *gin.Context) {
+	c.JSON(200, gin.H{"usage-statistics-max-details": h.cfg.UsageStatisticsMaxDetails})
+}
+func (h *Handler) PutUsageStatisticsMaxDetails(c *gin.Context) {
+	var body struct {
+		Value *int `json:"value"`
+	}
+	if errBindJSON := c.ShouldBindJSON(&body); errBindJSON != nil || body.Value == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		return
+	}
+	value := *body.Value
+	if value < 0 {
+		value = 500
+	}
+	h.cfg.UsageStatisticsMaxDetails = value
+	h.persist(c)
+}
+
+// LoggingToFile
 func (h *Handler) GetLoggingToFile(c *gin.Context) {
 	c.JSON(200, gin.H{"logging-to-file": h.cfg.LoggingToFile})
 }

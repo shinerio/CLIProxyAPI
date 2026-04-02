@@ -59,6 +59,12 @@ export const configApi = {
     apiClient.put('/usage-statistics-enabled', { value: enabled }),
 
   /**
+   * 使用统计明细保留上限
+   */
+  updateUsageStatisticsMaxDetails: (value: number) =>
+    apiClient.put('/usage-statistics-max-details', { value }),
+
+  /**
    * 请求日志开关
    */
   updateRequestLog: (enabled: boolean) => apiClient.put('/request-log', { value: enabled }),

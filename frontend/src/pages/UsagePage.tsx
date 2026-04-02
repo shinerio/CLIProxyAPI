@@ -200,7 +200,7 @@ export function UsagePage() {
     rpmSparkline,
     tpmSparkline,
     costSparkline
-  } = useSparklines({ usage: filteredUsage, loading, nowMs });
+  } = useSparklines({ usage, loading, nowMs });
 
   // Chart data hook
   const {
@@ -217,12 +217,12 @@ export function UsagePage() {
   // Derived data
   const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
   const apiStats = useMemo(
-    () => getApiStats(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+    () => getApiStats(usage, modelPrices),
+    [usage, modelPrices]
   );
   const modelStats = useMemo(
-    () => getModelStats(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+    () => getModelStats(usage, modelPrices),
+    [usage, modelPrices]
   );
   const hasPrices = Object.keys(modelPrices).length > 0;
 
@@ -296,10 +296,9 @@ export function UsagePage() {
 
       {/* Stats Overview Cards */}
       <StatCards
-        usage={filteredUsage}
+        usage={usage}
         loading={loading}
         modelPrices={modelPrices}
-        nowMs={nowMs}
         timeRange={timeRange}
         sparklines={{
           requests: requestsSparkline,
