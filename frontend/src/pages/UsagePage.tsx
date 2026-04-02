@@ -9,7 +9,7 @@ import {
   Title,
   Tooltip,
   Legend,
-  Filler
+  Filler,
 } from 'chart.js';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -31,14 +31,14 @@ import {
   ServiceHealthCard,
   useUsageData,
   useSparklines,
-  useChartData
+  useChartData,
 } from '@/components/usage';
 import {
   getModelNamesFromUsage,
   getApiStats,
   getModelStats,
   filterUsageByTimeRange,
-  type UsageTimeRange
+  type UsageTimeRange,
 } from '@/utils/usage';
 import styles from './UsagePage.module.scss';
 
@@ -68,7 +68,7 @@ const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: UsageTimeRange; labelKey: strin
 const HOUR_WINDOW_BY_TIME_RANGE: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7,
   '24h': 24,
-  '7d': 7 * 24
+  '7d': 7 * 24,
 };
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
@@ -136,7 +136,7 @@ export function UsagePage() {
     handleImportChange,
     importInputRef,
     exporting,
-    importing
+    importing,
   } = useUsageData();
 
   useHeaderRefresh(loadUsage);
@@ -144,28 +144,26 @@ export function UsagePage() {
   // Chart lines state
   const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
   const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
+  const [renderedAtMs] = useState(() => Date.now());
 
   const timeRangeOptions = useMemo(
     () =>
       TIME_RANGE_OPTIONS.map((opt) => ({
         value: opt.value,
-        label: t(opt.labelKey)
+        label: t(opt.labelKey),
       })),
     [t]
   );
 
   const nowMs = lastRefreshedAt?.getTime() ?? 0;
+  const effectiveNowMs = nowMs > 0 ? nowMs : renderedAtMs;
 
-  const filteredUsage = useMemo(
-    () => {
-      if (!usage) return null;
-      if (nowMs <= 0) return usage;
-      return filterUsageByTimeRange(usage, timeRange, nowMs);
-    },
-    [nowMs, timeRange, usage]
-  );
-  const hourWindowHours =
-    timeRange === 'all' ? undefined : HOUR_WINDOW_BY_TIME_RANGE[timeRange];
+  const filteredUsage = useMemo(() => {
+    if (!usage) return null;
+    if (nowMs <= 0) return usage;
+    return filterUsageByTimeRange(usage, timeRange, nowMs);
+  }, [nowMs, timeRange, usage]);
+  const hourWindowHours = timeRange === 'all' ? undefined : HOUR_WINDOW_BY_TIME_RANGE[timeRange];
 
   const handleChartLinesChange = useCallback((lines: string[]) => {
     setChartLines(normalizeChartLines(lines));
@@ -194,13 +192,8 @@ export function UsagePage() {
   }, [timeRange]);
 
   // Sparklines hook
-  const {
-    requestsSparkline,
-    tokensSparkline,
-    rpmSparkline,
-    tpmSparkline,
-    costSparkline
-  } = useSparklines({ usage, loading, nowMs });
+  const { requestsSparkline, tokensSparkline, rpmSparkline, tpmSparkline, costSparkline } =
+    useSparklines({ usage, loading, nowMs });
 
   // Chart data hook
   const {
@@ -211,19 +204,13 @@ export function UsagePage() {
     requestsChartData,
     tokensChartData,
     requestsChartOptions,
-    tokensChartOptions
+    tokensChartOptions,
   } = useChartData({ usage: filteredUsage, chartLines, isDark, isMobile, hourWindowHours });
 
   // Derived data
   const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
-  const apiStats = useMemo(
-    () => getApiStats(usage, modelPrices),
-    [usage, modelPrices]
-  );
-  const modelStats = useMemo(
-    () => getModelStats(usage, modelPrices),
-    [usage, modelPrices]
-  );
+  const apiStats = useMemo(() => getApiStats(usage, modelPrices), [usage, modelPrices]);
+  const modelStats = useMemo(() => getModelStats(usage, modelPrices), [usage, modelPrices]);
   const hasPrices = Object.keys(modelPrices).length > 0;
 
   return (
@@ -300,12 +287,13 @@ export function UsagePage() {
         loading={loading}
         modelPrices={modelPrices}
         timeRange={timeRange}
+        nowMs={effectiveNowMs}
         sparklines={{
           requests: requestsSparkline,
           tokens: tokensSparkline,
           rpm: rpmSparkline,
           tpm: tpmSparkline,
-          cost: costSparkline
+          cost: costSparkline,
         }}
       />
 

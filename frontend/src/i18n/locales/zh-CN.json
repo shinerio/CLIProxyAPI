@@ -117,8 +117,23 @@
     "quota_management": "配额管理",
     "usage_stats": "使用统计",
     "config_management": "配置面板",
+    "client_auth": "客户端认证",
+    "client_auth": "客户端认证",
+    "client_auth": "客户端认证",
     "logs": "日志查看",
     "system_info": "中心信息"
+  },
+  "client_auth": {
+    "title": "客户端认证",
+    "description": "独立管理 auth-dir 和客户端 API 密钥，而不与远程管理设置混合。"
+  },
+  "client_auth": {
+    "title": "客户端认证",
+    "description": "管理客户端访问目录和客户端 API 密钥"
+  },
+  "client_auth": {
+    "title": "客户端认证",
+    "description": "管理客户端访问目录和客户端 API 密钥"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -942,6 +957,8 @@
     "success_requests": "成功请求",
     "failed_requests": "失败请求",
     "total_tokens": "总Token数",
+    "max_requests_per_minute": "每分钟最大请求",
+    "max_tokens_per_minute": "每分钟最大 Token",
     "cached_tokens": "缓存 Tokens",
     "reasoning_tokens": "思考 Tokens",
     "rpm_30m": "RPM",
@@ -1031,6 +1048,7 @@
     "request_events_limit_hint": "为保证渲染性能，仅展示 {{shown}} / {{total}} 条事件。",
     "input_tokens": "输入 Tokens",
     "output_tokens": "输出 Tokens",
+    "range_peak_hint": "当前时间范围内的单分钟峰值",
     "last_updated": "更新于"
   },
   "stats": {

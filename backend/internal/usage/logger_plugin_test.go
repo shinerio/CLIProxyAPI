@@ -191,3 +191,103 @@ func TestMergeSnapshotWithAggregatesPreservesTotalsBeyondRetainedDetails(t *test
 		t.Fatalf("details len = %d, want 1", len(model.Details))
 	}
 }
+
+func TestRequestStatisticsTracksPerMinutePeaksAndRetainsSevenDayMinuteBuckets(t *testing.T) {
+	stats := NewRequestStatistics()
+	nowUTC := time.Now().UTC().Truncate(time.Minute)
+	insideWindow := nowUTC.Add(-(7*24*time.Hour - 30*time.Minute))
+	insideHighTokenWindow := nowUTC.Add(-(7*24*time.Hour - 10*time.Minute))
+	outsideWindow := nowUTC.Add(-(7*24*time.Hour + 30*time.Minute))
+
+	stats.Record(context.Background(), coreusage.Record{
+		APIKey:      "test-key",
+		Model:       "gpt-5.4",
+		RequestedAt: insideWindow,
+		Detail: coreusage.Detail{
+			InputTokens:  10,
+			OutputTokens: 20,
+			TotalTokens:  30,
+		},
+	})
+	stats.Record(context.Background(), coreusage.Record{
+		APIKey:      "test-key",
+		Model:       "gpt-5.4",
+		RequestedAt: insideWindow.Add(20 * time.Second),
+		Detail: coreusage.Detail{
+			InputTokens:  30,
+			OutputTokens: 40,
+			TotalTokens:  70,
+		},
+	})
+	stats.Record(context.Background(), coreusage.Record{
+		APIKey:      "test-key",
+		Model:       "gpt-5.4",
+		RequestedAt: insideHighTokenWindow,
+		Detail: coreusage.Detail{
+			InputTokens:  50,
+			OutputTokens: 60,
+			TotalTokens:  110,
+		},
+	})
+	stats.Record(context.Background(), coreusage.Record{
+		APIKey:      "test-key",
+		Model:       "gpt-5.4",
+		RequestedAt: outsideWindow,
+		Detail: coreusage.Detail{
+			InputTokens:  50,
+			OutputTokens: 60,
+			TotalTokens:  110,
+		},
+	})
+
+	snapshot := stats.Snapshot()
+	if snapshot.MaxRequestsPerMinute != 2 {
+		t.Fatalf("max requests per minute = %d, want 2", snapshot.MaxRequestsPerMinute)
+	}
+	if snapshot.MaxTokensPerMinute != 110 {
+		t.Fatalf("max tokens per minute = %d, want 110", snapshot.MaxTokensPerMinute)
+	}
+
+	insideKey := insideWindow.UTC().Format("2006-01-02T15:04:00Z")
+	if snapshot.RecentRequestsByMinute[insideKey] != 2 {
+		t.Fatalf("recent requests for %s = %d, want 2", insideKey, snapshot.RecentRequestsByMinute[insideKey])
+	}
+	if snapshot.RecentTokensByMinute[insideKey] != 100 {
+		t.Fatalf("recent tokens for %s = %d, want 100", insideKey, snapshot.RecentTokensByMinute[insideKey])
+	}
+
+	outsideKey := outsideWindow.UTC().Format("2006-01-02T15:04:00Z")
+	if _, ok := snapshot.RecentRequestsByMinute[outsideKey]; ok {
+		t.Fatalf("unexpected pruned bucket %s in recent requests", outsideKey)
+	}
+	if _, ok := snapshot.RecentTokensByMinute[outsideKey]; ok {
+		t.Fatalf("unexpected pruned bucket %s in recent tokens", outsideKey)
+	}
+}
+
+func TestMergeSnapshotPreservesAllTimePerMinutePeaks(t *testing.T) {
+	stats := NewRequestStatistics()
+
+	result := stats.MergeSnapshot(StatisticsSnapshot{
+		MaxRequestsPerMinute: 5,
+		MaxTokensPerMinute:   700,
+		RecentRequestsByMinute: map[string]int64{
+			"2026-04-02T12:00:00Z": 3,
+		},
+		RecentTokensByMinute: map[string]int64{
+			"2026-04-02T12:00:00Z": 400,
+		},
+		APIs: map[string]APISnapshot{},
+	})
+	if result.Added != 0 || result.Skipped != 0 {
+		t.Fatalf("merge result = %+v, want added=0 skipped=0", result)
+	}
+
+	snapshot := stats.Snapshot()
+	if snapshot.MaxRequestsPerMinute != 5 {
+		t.Fatalf("max requests per minute = %d, want 5", snapshot.MaxRequestsPerMinute)
+	}
+	if snapshot.MaxTokensPerMinute != 700 {
+		t.Fatalf("max tokens per minute = %d, want 700", snapshot.MaxTokensPerMinute)
+	}
+}

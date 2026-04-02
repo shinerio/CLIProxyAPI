@@ -29,6 +29,18 @@ export interface RateStats {
   tokenCount: number;
 }
 
+export interface UsageRangeSummary {
+  totalRequests: number;
+  successCount: number;
+  failureCount: number;
+  totalTokens: number;
+}
+
+export interface PeakPerMinuteStats {
+  maxRequestsPerMinute: number;
+  maxTokensPerMinute: number;
+}
+
 export interface ModelPrice {
   prompt: number;
   completion: number;
@@ -66,7 +78,10 @@ export interface ApiStats {
   failureCount: number;
   totalTokens: number;
   totalCost: number;
-  models: Record<string, { requests: number; successCount: number; failureCount: number; tokens: number }>;
+  models: Record<
+    string,
+    { requests: number; successCount: number; failureCount: number; tokens: number }
+  >;
 }
 
 export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
@@ -79,7 +94,7 @@ const USAGE_ISO_NANO_TIMESTAMP_REGEX =
 const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000
+  '7d': 7 * 24 * 60 * 60 * 1000,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -115,14 +130,14 @@ const createUsageSummary = (): UsageSummary => ({
   totalRequests: 0,
   successCount: 0,
   failureCount: 0,
-  totalTokens: 0
+  totalTokens: 0,
 });
 
 const toUsageSummaryFields = (summary: UsageSummary) => ({
   total_requests: summary.totalRequests,
   success_count: summary.successCount,
   failure_count: summary.failureCount,
-  total_tokens: summary.totalTokens
+  total_tokens: summary.totalTokens,
 });
 
 const toSafeNumber = (value: unknown): number => {
@@ -143,7 +158,7 @@ const getTokenStatsRecord = (value: unknown): AggregateTokenStats => {
     outputTokens,
     reasoningTokens,
     cachedTokens,
-    totalTokens: totalTokensRaw > 0 ? totalTokensRaw : fallbackTotal
+    totalTokens: totalTokensRaw > 0 ? totalTokensRaw : fallbackTotal,
   };
 };
 
@@ -169,7 +184,8 @@ const calculateCostFromAggregateTokens = (
   const promptTokens = Math.max(tokens.inputTokens - tokens.cachedTokens, 0);
   const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.prompt) || 0);
   const cachedCost = (tokens.cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0);
-  const completionCost = (tokens.outputTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
+  const completionCost =
+    (tokens.outputTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
   const total = promptCost + cachedCost + completionCost;
   return Number.isFinite(total) && total > 0 ? total : 0;
 };
@@ -210,7 +226,7 @@ const readServiceHealthBucketMap = (value: unknown): Map<string, BucketServiceHe
     const bucket = isRecord(rawValue) ? rawValue : null;
     result.set(key, {
       successCount: Math.max(toSafeNumber(bucket?.success_count), 0),
-      failureCount: Math.max(toSafeNumber(bucket?.failure_count), 0)
+      failureCount: Math.max(toSafeNumber(bucket?.failure_count), 0),
     });
   });
   return result;
@@ -329,13 +345,17 @@ const filterTokenBucketsByTimeRange = (
       output_tokens: tokens.outputTokens,
       reasoning_tokens: tokens.reasoningTokens,
       cached_tokens: tokens.cachedTokens,
-      total_tokens: tokens.totalTokens
+      total_tokens: tokens.totalTokens,
     };
   });
   return result;
 };
 
-export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, nowMs: number = Date.now()): T {
+export function filterUsageByTimeRange<T>(
+  usageData: T,
+  range: UsageTimeRange,
+  nowMs: number = Date.now()
+): T {
   if (range === 'all') {
     return usageData;
   }
@@ -384,7 +404,12 @@ export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, n
           return;
         }
         const timestamp = parseUsageTimestampMs(detailRecord.timestamp);
-        if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > nowMs) {
+        if (
+          !Number.isFinite(timestamp) ||
+          timestamp <= 0 ||
+          timestamp < windowStart ||
+          timestamp > nowMs
+        ) {
           return;
         }
 
@@ -406,12 +431,36 @@ export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, n
         ...modelEntry,
         ...toUsageSummaryFields(modelSummary),
         details: filteredDetails,
-        requests_by_day: filterNumericBucketsByTimeRange(modelEntry.requests_by_day, windowStart, nowMs),
-        requests_by_hour: filterNumericBucketsByTimeRange(modelEntry.requests_by_hour, windowStart, nowMs),
-        tokens_by_day: filterNumericBucketsByTimeRange(modelEntry.tokens_by_day, windowStart, nowMs),
-        tokens_by_hour: filterNumericBucketsByTimeRange(modelEntry.tokens_by_hour, windowStart, nowMs),
-        token_stats_by_day: filterTokenBucketsByTimeRange(modelEntry.token_stats_by_day, windowStart, nowMs),
-        token_stats_by_hour: filterTokenBucketsByTimeRange(modelEntry.token_stats_by_hour, windowStart, nowMs)
+        requests_by_day: filterNumericBucketsByTimeRange(
+          modelEntry.requests_by_day,
+          windowStart,
+          nowMs
+        ),
+        requests_by_hour: filterNumericBucketsByTimeRange(
+          modelEntry.requests_by_hour,
+          windowStart,
+          nowMs
+        ),
+        tokens_by_day: filterNumericBucketsByTimeRange(
+          modelEntry.tokens_by_day,
+          windowStart,
+          nowMs
+        ),
+        tokens_by_hour: filterNumericBucketsByTimeRange(
+          modelEntry.tokens_by_hour,
+          windowStart,
+          nowMs
+        ),
+        token_stats_by_day: filterTokenBucketsByTimeRange(
+          modelEntry.token_stats_by_day,
+          windowStart,
+          nowMs
+        ),
+        token_stats_by_hour: filterTokenBucketsByTimeRange(
+          modelEntry.token_stats_by_hour,
+          windowStart,
+          nowMs
+        ),
       };
       hasModelData = true;
 
@@ -428,7 +477,7 @@ export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, n
     filteredApis[apiName] = {
       ...apiEntry,
       ...toUsageSummaryFields(apiSummary),
-      models: filteredModels
+      models: filteredModels,
     };
 
     totalSummary.totalRequests += apiSummary.totalRequests;
@@ -440,7 +489,7 @@ export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, n
   return {
     ...usageRecord,
     ...toUsageSummaryFields(totalSummary),
-    apis: filteredApis
+    apis: filteredApis,
   } as T;
 }
 
@@ -540,7 +589,8 @@ export function normalizeUsageSourceId(
   value: unknown,
   masker: (val: string) => string = maskApiKey
 ): string {
-  const raw = typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
+  const raw =
+    typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value);
   const trimmed = raw.trim();
   if (!trimmed) return '';
 
@@ -556,7 +606,10 @@ export function normalizeUsageSourceId(
   return `${USAGE_SOURCE_PREFIX_TEXT}${trimmed}`;
 }
 
-export function buildCandidateUsageSourceIds(input: { apiKey?: string; prefix?: string }): string[] {
+export function buildCandidateUsageSourceIds(input: {
+  apiKey?: string;
+  prefix?: string;
+}): string[] {
   const result: string[] = [];
 
   const prefix = input.prefix?.trim();
@@ -576,7 +629,10 @@ export function buildCandidateUsageSourceIds(input: { apiKey?: string; prefix?: 
 /**
  * 对使用数据中的敏感字段进行遮罩
  */
-export function maskUsageSensitiveValue(value: unknown, masker: (val: string) => string = maskApiKey): string {
+export function maskUsageSensitiveValue(
+  value: unknown,
+  masker: (val: string) => string = maskApiKey
+): string {
   if (value === null || value === undefined) {
     return '';
   }
@@ -588,12 +644,20 @@ export function maskUsageSensitiveValue(value: unknown, masker: (val: string) =>
   let masked = raw;
 
   const queryRegex = /([?&])(api[-_]?key|key|token|access_token|authorization)=([^&#\s]+)/gi;
-  masked = masked.replace(queryRegex, (_full, prefix, keyName, valuePart) => `${prefix}${keyName}=${masker(valuePart)}`);
+  masked = masked.replace(
+    queryRegex,
+    (_full, prefix, keyName, valuePart) => `${prefix}${keyName}=${masker(valuePart)}`
+  );
 
-  const headerRegex = /(api[-_]?key|key|token|access[-_]?token|authorization)\s*([:=])\s*([A-Za-z0-9._-]+)/gi;
-  masked = masked.replace(headerRegex, (_full, keyName, separator, valuePart) => `${keyName}${separator}${masker(valuePart)}`);
+  const headerRegex =
+    /(api[-_]?key|key|token|access[-_]?token|authorization)\s*([:=])\s*([A-Za-z0-9._-]+)/gi;
+  masked = masked.replace(
+    headerRegex,
+    (_full, keyName, separator, valuePart) => `${keyName}${separator}${masker(valuePart)}`
+  );
 
-  const keyLikeRegex = /(sk-[A-Za-z0-9]{6,}|AI[a-zA-Z0-9_-]{6,}|AIza[0-9A-Za-z-_]{8,}|hf_[A-Za-z0-9]{6,}|pk_[A-Za-z0-9]{6,}|rk_[A-Za-z0-9]{6,})/g;
+  const keyLikeRegex =
+    /(sk-[A-Za-z0-9]{6,}|AI[a-zA-Z0-9_-]{6,}|AIza[0-9A-Za-z-_]{8,}|hf_[A-Za-z0-9]{6,}|pk_[A-Za-z0-9]{6,}|rk_[A-Za-z0-9]{6,})/g;
   masked = masked.replace(keyLikeRegex, (match) => masker(match));
 
   if (masked === raw) {
@@ -667,7 +731,7 @@ export function formatUsd(value: number): string {
   const fixed = num.toFixed(2);
   const parts = Number(fixed).toLocaleString(undefined, {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
   });
   return `$${parts}`;
 }
@@ -844,7 +908,7 @@ export function calculateTokenBreakdown(usageData: unknown): TokenBreakdown {
   if (hasAggregateTokenStats(aggregateTokens)) {
     return {
       cachedTokens: aggregateTokens.cachedTokens,
-      reasoningTokens: aggregateTokens.reasoningTokens
+      reasoningTokens: aggregateTokens.reasoningTokens,
     };
   }
 
@@ -909,7 +973,7 @@ export function calculateRecentPerMinuteRates(
       tpm: tokenCount / denominator,
       windowMinutes: effectiveWindow,
       requestCount,
-      tokenCount
+      tokenCount,
     };
   }
 
@@ -936,11 +1000,14 @@ export function calculateRecentPerMinuteRates(
     tpm: tokenCount / denominator,
     windowMinutes: effectiveWindow,
     requestCount,
-    tokenCount
+    tokenCount,
   };
 }
 
-export function calculateAllTimePerMinuteRates(usageData: unknown, nowMs: number = Date.now()): RateStats {
+export function calculateAllTimePerMinuteRates(
+  usageData: unknown,
+  nowMs: number = Date.now()
+): RateStats {
   const usageRecord = isRecord(usageData) ? usageData : null;
   const totalRequests = Math.max(toSafeNumber(usageRecord?.total_requests), 0);
   const totalTokens = Math.max(toSafeNumber(usageRecord?.total_tokens), 0);
@@ -964,13 +1031,18 @@ export function calculateAllTimePerMinuteRates(usageData: unknown, nowMs: number
     });
   }
 
-  if (!Number.isFinite(oldestTimestamp) || oldestTimestamp <= 0 || !Number.isFinite(nowMs) || nowMs <= 0) {
+  if (
+    !Number.isFinite(oldestTimestamp) ||
+    oldestTimestamp <= 0 ||
+    !Number.isFinite(nowMs) ||
+    nowMs <= 0
+  ) {
     return {
       rpm: 0,
       tpm: 0,
       windowMinutes: 0,
       requestCount: totalRequests,
-      tokenCount: totalTokens
+      tokenCount: totalTokens,
     };
   }
 
@@ -980,8 +1052,262 @@ export function calculateAllTimePerMinuteRates(usageData: unknown, nowMs: number
     tpm: totalTokens / windowMinutes,
     windowMinutes,
     requestCount: totalRequests,
-    tokenCount: totalTokens
+    tokenCount: totalTokens,
   };
+}
+
+const sumServiceHealthBucketsInRange = (
+  usageData: unknown,
+  windowStart: number,
+  nowMs: number
+): { successCount: number; failureCount: number; hasData: boolean } => {
+  const bucketMap = readServiceHealthBucketMap(
+    isRecord(usageData) ? usageData.service_health_by_quarter_hour : null
+  );
+  if (bucketMap.size === 0) {
+    return { successCount: 0, failureCount: 0, hasData: false };
+  }
+
+  let successCount = 0;
+  let failureCount = 0;
+  let hasData = false;
+
+  bucketMap.forEach((bucket, key) => {
+    const timestamp = parseUsageTimestampMs(key);
+    if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+      return;
+    }
+    successCount += bucket.successCount;
+    failureCount += bucket.failureCount;
+    hasData = true;
+  });
+
+  return { successCount, failureCount, hasData };
+};
+
+const sumModelHourlyUsageInRange = (
+  usageData: unknown,
+  windowStart: number,
+  nowMs: number
+): { requestCount: number; tokenCount: number; hasRequests: boolean; hasTokens: boolean } => {
+  const apis = getApisRecord(usageData);
+  if (!apis) {
+    return { requestCount: 0, tokenCount: 0, hasRequests: false, hasTokens: false };
+  }
+
+  let requestCount = 0;
+  let tokenCount = 0;
+  let hasRequests = false;
+  let hasTokens = false;
+
+  Object.values(apis).forEach((apiEntry) => {
+    if (!isRecord(apiEntry)) return;
+    const models = isRecord(apiEntry.models) ? apiEntry.models : null;
+    if (!models) return;
+
+    Object.values(models).forEach((modelEntry) => {
+      if (!isRecord(modelEntry)) return;
+
+      const requestsByHour = readNumericBucketMap(modelEntry.requests_by_hour);
+      requestsByHour.forEach((count, key) => {
+        const timestamp = parseUsageTimestampMs(key);
+        if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+          return;
+        }
+        requestCount += count;
+        hasRequests = true;
+      });
+
+      const tokenStatsByHour = readTokenBucketMap(modelEntry.token_stats_by_hour);
+      if (tokenStatsByHour.size > 0) {
+        tokenStatsByHour.forEach((tokens, key) => {
+          const timestamp = parseUsageTimestampMs(key);
+          if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+            return;
+          }
+          tokenCount += tokens.totalTokens;
+          hasTokens = true;
+        });
+        return;
+      }
+
+      const tokensByHour = readNumericBucketMap(modelEntry.tokens_by_hour);
+      tokensByHour.forEach((count, key) => {
+        const timestamp = parseUsageTimestampMs(key);
+        if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+          return;
+        }
+        tokenCount += count;
+        hasTokens = true;
+      });
+    });
+  });
+
+  return { requestCount, tokenCount, hasRequests, hasTokens };
+};
+
+const summarizeDetailsInRange = (
+  usageData: unknown,
+  windowStart: number,
+  nowMs: number
+): UsageRangeSummary => {
+  const summary: UsageRangeSummary = {
+    totalRequests: 0,
+    successCount: 0,
+    failureCount: 0,
+    totalTokens: 0,
+  };
+
+  collectUsageDetails(usageData).forEach((detail) => {
+    const timestamp = resolveUsageDetailTimestampMs(detail);
+    if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+      return;
+    }
+    summary.totalRequests += 1;
+    summary.totalTokens += extractTotalTokens(detail);
+    if (detail.failed) {
+      summary.failureCount += 1;
+    } else {
+      summary.successCount += 1;
+    }
+  });
+
+  return summary;
+};
+
+export function calculateUsageSummaryForTimeRange(
+  usageData: unknown,
+  range: UsageTimeRange,
+  nowMs: number = Date.now()
+): UsageRangeSummary {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  if (!usageRecord) {
+    return {
+      totalRequests: 0,
+      successCount: 0,
+      failureCount: 0,
+      totalTokens: 0,
+    };
+  }
+
+  if (range === 'all') {
+    return {
+      totalRequests: Math.max(toSafeNumber(usageRecord.total_requests), 0),
+      successCount: Math.max(toSafeNumber(usageRecord.success_count), 0),
+      failureCount: Math.max(toSafeNumber(usageRecord.failure_count), 0),
+      totalTokens: Math.max(toSafeNumber(usageRecord.total_tokens), 0),
+    };
+  }
+
+  const rangeMs = USAGE_TIME_RANGE_MS[range];
+  if (!Number.isFinite(rangeMs) || rangeMs <= 0 || !Number.isFinite(nowMs) || nowMs <= 0) {
+    return {
+      totalRequests: 0,
+      successCount: 0,
+      failureCount: 0,
+      totalTokens: 0,
+    };
+  }
+
+  const windowStart = nowMs - rangeMs;
+  const serviceHealthSummary = sumServiceHealthBucketsInRange(usageData, windowStart, nowMs);
+  const hourlyUsageSummary = sumModelHourlyUsageInRange(usageData, windowStart, nowMs);
+  const detailSummary = summarizeDetailsInRange(usageData, windowStart, nowMs);
+
+  const successCount = serviceHealthSummary.hasData
+    ? serviceHealthSummary.successCount
+    : detailSummary.successCount;
+  const failureCount = serviceHealthSummary.hasData
+    ? serviceHealthSummary.failureCount
+    : detailSummary.failureCount;
+  const totalRequests = serviceHealthSummary.hasData
+    ? successCount + failureCount
+    : hourlyUsageSummary.hasRequests
+      ? hourlyUsageSummary.requestCount
+      : detailSummary.totalRequests;
+  const totalTokens = hourlyUsageSummary.hasTokens
+    ? hourlyUsageSummary.tokenCount
+    : detailSummary.totalTokens;
+
+  return {
+    totalRequests,
+    successCount,
+    failureCount,
+    totalTokens,
+  };
+}
+
+export function calculatePeakPerMinuteStats(
+  usageData: unknown,
+  range: UsageTimeRange,
+  nowMs: number = Date.now()
+): PeakPerMinuteStats {
+  const usageRecord = isRecord(usageData) ? usageData : null;
+  if (!usageRecord) {
+    return { maxRequestsPerMinute: 0, maxTokensPerMinute: 0 };
+  }
+
+  if (range === 'all') {
+    const maxRequestsPerMinute = Math.max(toSafeNumber(usageRecord.max_requests_per_minute), 0);
+    const maxTokensPerMinute = Math.max(toSafeNumber(usageRecord.max_tokens_per_minute), 0);
+    if (maxRequestsPerMinute > 0 || maxTokensPerMinute > 0) {
+      return { maxRequestsPerMinute, maxTokensPerMinute };
+    }
+  }
+
+  const recentRequestsByMinute = readNumericBucketMap(usageRecord.recent_requests_by_minute);
+  const recentTokensByMinute = readNumericBucketMap(usageRecord.recent_tokens_by_minute);
+  const rangeMs = range === 'all' ? Number.POSITIVE_INFINITY : USAGE_TIME_RANGE_MS[range];
+  const windowStart =
+    range === 'all' || !Number.isFinite(rangeMs) || rangeMs <= 0
+      ? Number.NEGATIVE_INFINITY
+      : nowMs - rangeMs;
+
+  if (recentRequestsByMinute.size > 0 || recentTokensByMinute.size > 0) {
+    let maxRequestsPerMinute = 0;
+    let maxTokensPerMinute = 0;
+
+    recentRequestsByMinute.forEach((count, key) => {
+      const timestamp = parseUsageTimestampMs(key);
+      if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+        return;
+      }
+      maxRequestsPerMinute = Math.max(maxRequestsPerMinute, count);
+    });
+
+    recentTokensByMinute.forEach((count, key) => {
+      const timestamp = parseUsageTimestampMs(key);
+      if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+        return;
+      }
+      maxTokensPerMinute = Math.max(maxTokensPerMinute, count);
+    });
+
+    if (maxRequestsPerMinute > 0 || maxTokensPerMinute > 0) {
+      return { maxRequestsPerMinute, maxTokensPerMinute };
+    }
+  }
+
+  let maxRequestsPerMinute = 0;
+  let maxTokensPerMinute = 0;
+  const minuteRequestCounts = new Map<number, number>();
+  const minuteTokenCounts = new Map<number, number>();
+
+  collectUsageDetails(usageData).forEach((detail) => {
+    const timestamp = resolveUsageDetailTimestampMs(detail);
+    if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+      return;
+    }
+    const minuteStart = Math.floor(timestamp / 60000) * 60000;
+    const requestCount = (minuteRequestCounts.get(minuteStart) || 0) + 1;
+    const tokenCount = (minuteTokenCounts.get(minuteStart) || 0) + extractTotalTokens(detail);
+    minuteRequestCounts.set(minuteStart, requestCount);
+    minuteTokenCounts.set(minuteStart, tokenCount);
+    maxRequestsPerMinute = Math.max(maxRequestsPerMinute, requestCount);
+    maxTokensPerMinute = Math.max(maxTokensPerMinute, tokenCount);
+  });
+
+  return { maxRequestsPerMinute, maxTokensPerMinute };
 }
 
 export function buildRecentMinuteSeries(
@@ -989,7 +1315,8 @@ export function buildRecentMinuteSeries(
   nowMs: number = Date.now(),
   windowMinutes: number = 60
 ): { labels: string[]; requests: number[]; tokens: number[] } {
-  const resolvedWindow = Number.isFinite(windowMinutes) && windowMinutes > 0 ? Math.floor(windowMinutes) : 60;
+  const resolvedWindow =
+    Number.isFinite(windowMinutes) && windowMinutes > 0 ? Math.floor(windowMinutes) : 60;
   if (!Number.isFinite(nowMs) || nowMs <= 0) {
     return { labels: [], requests: [], tokens: [] };
   }
@@ -1008,7 +1335,10 @@ export function buildRecentMinuteSeries(
       if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > now) {
         return;
       }
-      const minuteIndex = Math.min(resolvedWindow - 1, Math.floor((timestamp - windowStart) / 60000));
+      const minuteIndex = Math.min(
+        resolvedWindow - 1,
+        Math.floor((timestamp - windowStart) / 60000)
+      );
       requestBuckets[minuteIndex] += count;
     });
     recentTokensByMinute.forEach((count, key) => {
@@ -1016,7 +1346,10 @@ export function buildRecentMinuteSeries(
       if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > now) {
         return;
       }
-      const minuteIndex = Math.min(resolvedWindow - 1, Math.floor((timestamp - windowStart) / 60000));
+      const minuteIndex = Math.min(
+        resolvedWindow - 1,
+        Math.floor((timestamp - windowStart) / 60000)
+      );
       tokenBuckets[minuteIndex] += count;
     });
   } else {
@@ -1026,7 +1359,10 @@ export function buildRecentMinuteSeries(
       if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > now) {
         return;
       }
-      const minuteIndex = Math.min(resolvedWindow - 1, Math.floor((timestamp - windowStart) / 60000));
+      const minuteIndex = Math.min(
+        resolvedWindow - 1,
+        Math.floor((timestamp - windowStart) / 60000)
+      );
       requestBuckets[minuteIndex] += 1;
       tokenBuckets[minuteIndex] += extractTotalTokens(detail);
     });
@@ -1066,7 +1402,10 @@ export function getModelNamesFromUsage(usageData: unknown): string[] {
 /**
  * 计算成本数据
  */
-export function calculateCost(detail: UsageDetail, modelPrices: Record<string, ModelPrice>): number {
+export function calculateCost(
+  detail: UsageDetail,
+  modelPrices: Record<string, ModelPrice>
+): number {
   const modelName = detail.__modelName || '';
   const price = modelPrices[modelName];
   if (!price) {
@@ -1079,7 +1418,9 @@ export function calculateCost(detail: UsageDetail, modelPrices: Record<string, M
   const rawCachedTokensAlternate = Number(tokens.cache_tokens);
 
   const inputTokens = Number.isFinite(rawInputTokens) ? Math.max(rawInputTokens, 0) : 0;
-  const completionTokens = Number.isFinite(rawCompletionTokens) ? Math.max(rawCompletionTokens, 0) : 0;
+  const completionTokens = Number.isFinite(rawCompletionTokens)
+    ? Math.max(rawCompletionTokens, 0)
+    : 0;
   const cachedTokens = Math.max(
     Number.isFinite(rawCachedTokensPrimary) ? Math.max(rawCachedTokensPrimary, 0) : 0,
     Number.isFinite(rawCachedTokensAlternate) ? Math.max(rawCachedTokensAlternate, 0) : 0
@@ -1088,7 +1429,8 @@ export function calculateCost(detail: UsageDetail, modelPrices: Record<string, M
 
   const promptCost = (promptTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.prompt) || 0);
   const cachedCost = (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0);
-  const completionCost = (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
+  const completionCost =
+    (completionTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.completion) || 0);
   const total = promptCost + cachedCost + completionCost;
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
@@ -1096,7 +1438,10 @@ export function calculateCost(detail: UsageDetail, modelPrices: Record<string, M
 /**
  * 计算总成本
  */
-export function calculateTotalCost(usageData: unknown, modelPrices: Record<string, ModelPrice>): number {
+export function calculateTotalCost(
+  usageData: unknown,
+  modelPrices: Record<string, ModelPrice>
+): number {
   if (!Object.keys(modelPrices).length) {
     return 0;
   }
@@ -1155,7 +1500,11 @@ export function loadModelPrices(): Record<string, ModelPrice> {
       const completionRaw = Number(priceRecord?.completion);
       const cacheRaw = Number(priceRecord?.cache);
 
-      if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
+      if (
+        !Number.isFinite(promptRaw) &&
+        !Number.isFinite(completionRaw) &&
+        !Number.isFinite(cacheRaw)
+      ) {
         return;
       }
 
@@ -1171,7 +1520,7 @@ export function loadModelPrices(): Record<string, ModelPrice> {
       normalized[model] = {
         prompt,
         completion,
-        cache
+        cache,
       };
     });
     return normalized;
@@ -1197,14 +1546,20 @@ export function saveModelPrices(prices: Record<string, ModelPrice>): void {
 /**
  * 获取 API 统计数据
  */
-export function getApiStats(usageData: unknown, modelPrices: Record<string, ModelPrice>): ApiStats[] {
+export function getApiStats(
+  usageData: unknown,
+  modelPrices: Record<string, ModelPrice>
+): ApiStats[] {
   const apis = getApisRecord(usageData);
   if (!apis) return [];
   const result: ApiStats[] = [];
 
   Object.entries(apis).forEach(([endpoint, apiData]) => {
     if (!isRecord(apiData)) return;
-    const models: Record<string, { requests: number; successCount: number; failureCount: number; tokens: number }> = {};
+    const models: Record<
+      string,
+      { requests: number; successCount: number; failureCount: number; tokens: number }
+    > = {};
     let derivedSuccessCount = 0;
     let derivedFailureCount = 0;
     let totalCost = 0;
@@ -1252,7 +1607,7 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
         requests: Number(modelData.total_requests) || 0,
         successCount,
         failureCount,
-        tokens: Number(modelData.total_tokens) || 0
+        tokens: Number(modelData.total_tokens) || 0,
       };
       derivedSuccessCount += successCount;
       derivedFailureCount += failureCount;
@@ -1261,10 +1616,10 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
     const hasApiExplicitCounts =
       typeof apiData.success_count === 'number' || typeof apiData.failure_count === 'number';
     const successCount = hasApiExplicitCounts
-      ? (Number(apiData.success_count) || 0)
+      ? Number(apiData.success_count) || 0
       : derivedSuccessCount;
     const failureCount = hasApiExplicitCounts
-      ? (Number(apiData.failure_count) || 0)
+      ? Number(apiData.failure_count) || 0
       : derivedFailureCount;
 
     result.push({
@@ -1274,7 +1629,7 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
       failureCount,
       totalTokens: Number(apiData.total_tokens) || 0,
       totalCost,
-      models
+      models,
     });
   });
 
@@ -1284,7 +1639,10 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
 /**
  * 获取模型统计数据
  */
-export function getModelStats(usageData: unknown, modelPrices: Record<string, ModelPrice>): Array<{
+export function getModelStats(
+  usageData: unknown,
+  modelPrices: Record<string, ModelPrice>
+): Array<{
   model: string;
   requests: number;
   successCount: number;
@@ -1295,7 +1653,10 @@ export function getModelStats(usageData: unknown, modelPrices: Record<string, Mo
   const apis = getApisRecord(usageData);
   if (!apis) return [];
 
-  const modelMap = new Map<string, { requests: number; successCount: number; failureCount: number; tokens: number; cost: number }>();
+  const modelMap = new Map<
+    string,
+    { requests: number; successCount: number; failureCount: number; tokens: number; cost: number }
+  >();
 
   Object.values(apis).forEach((apiData) => {
     if (!isRecord(apiData)) return;
@@ -1305,7 +1666,13 @@ export function getModelStats(usageData: unknown, modelPrices: Record<string, Mo
 
     Object.entries(models).forEach(([modelName, modelData]) => {
       if (!isRecord(modelData)) return;
-      const existing = modelMap.get(modelName) || { requests: 0, successCount: 0, failureCount: 0, tokens: 0, cost: 0 };
+      const existing = modelMap.get(modelName) || {
+        requests: 0,
+        successCount: 0,
+        failureCount: 0,
+        tokens: 0,
+        cost: 0,
+      };
       existing.requests += Number(modelData.total_requests) || 0;
       existing.tokens += Number(modelData.total_tokens) || 0;
       const aggregateTokens = getAggregateTokenStatsFromRecord(modelData);
@@ -1426,17 +1793,9 @@ export function buildHourlySeriesByModel(
         const tokenStatsByHour = readTokenBucketMap(modelEntry.token_stats_by_hour);
         const tokensByHour = readNumericBucketMap(modelEntry.tokens_by_hour);
         const bucketSource =
-          metric === 'requests'
-            ? requestsByHour
-            : tokenStatsByHour.size > 0
-              ? null
-              : tokensByHour;
+          metric === 'requests' ? requestsByHour : tokenStatsByHour.size > 0 ? null : tokensByHour;
 
-        if (
-          requestsByHour.size === 0 &&
-          tokenStatsByHour.size === 0 &&
-          tokensByHour.size === 0
-        ) {
+        if (requestsByHour.size === 0 && tokenStatsByHour.size === 0 && tokensByHour.size === 0) {
           return;
         }
 
@@ -1551,17 +1910,9 @@ export function buildDailySeriesByModel(
         const tokenStatsByDay = readTokenBucketMap(modelEntry.token_stats_by_day);
         const tokensByDay = readNumericBucketMap(modelEntry.tokens_by_day);
         const dayMap =
-          metric === 'requests'
-            ? requestsByDay
-            : tokenStatsByDay.size > 0
-              ? null
-              : tokensByDay;
+          metric === 'requests' ? requestsByDay : tokenStatsByDay.size > 0 ? null : tokensByDay;
 
-        if (
-          requestsByDay.size === 0 &&
-          tokenStatsByDay.size === 0 &&
-          tokensByDay.size === 0
-        ) {
+        if (requestsByDay.size === 0 && tokenStatsByDay.size === 0 && tokensByDay.size === 0) {
           return;
         }
 
@@ -1630,7 +1981,7 @@ export function buildDailySeriesByModel(
   const labels = Array.from(labelsSet).sort();
   const dataByModel = new Map<string, number[]>();
   valuesByModel.forEach((dayMap, modelName) => {
-    const series = labels.map(label => dayMap.get(label) || 0);
+    const series = labels.map((label) => dayMap.get(label) || 0);
     dataByModel.set(modelName, series);
   });
 
@@ -1641,7 +1992,10 @@ export interface ChartDataset {
   label: string;
   data: number[];
   borderColor: string;
-  backgroundColor: string | CanvasGradient | ((context: ScriptableContext<'line'>) => string | CanvasGradient);
+  backgroundColor:
+    | string
+    | CanvasGradient
+    | ((context: ScriptableContext<'line'>) => string | CanvasGradient);
   pointBackgroundColor?: string;
   pointBorderColor?: string;
   fill: boolean;
@@ -1690,7 +2044,11 @@ const withAlpha = (hex: string, alpha: number) => {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamped})`;
 };
 
-const buildAreaGradient = (context: ScriptableContext<'line'>, baseHex: string, fallback: string) => {
+const buildAreaGradient = (
+  context: ScriptableContext<'line'>,
+  baseHex: string,
+  fallback: string
+) => {
   const chart = context.chart;
   const ctx = chart.ctx;
   const area = chart.chartArea;
@@ -1716,16 +2074,17 @@ export function buildChartData(
   selectedModels: string[] = [],
   options: { hourWindowHours?: number } = {}
 ): ChartData {
-  const baseSeries = period === 'hour'
-    ? buildHourlySeriesByModel(usageData, metric, options.hourWindowHours)
-    : buildDailySeriesByModel(usageData, metric);
+  const baseSeries =
+    period === 'hour'
+      ? buildHourlySeriesByModel(usageData, metric, options.hourWindowHours)
+      : buildDailySeriesByModel(usageData, metric);
 
   const { labels, dataByModel } = baseSeries;
 
   // Build "All" series as sum of all models
   const getAllSeries = (): number[] => {
     const summed = new Array(labels.length).fill(0);
-    dataByModel.forEach(values => {
+    dataByModel.forEach((values) => {
       values.forEach((value, idx) => {
         summed[idx] = (summed[idx] || 0) + value;
       });
@@ -1738,7 +2097,9 @@ export function buildChartData(
 
   const datasets: ChartDataset[] = modelsToShow.map((model, index) => {
     const isAll = model === 'all';
-    const data = isAll ? getAllSeries() : (dataByModel.get(model) || new Array(labels.length).fill(0));
+    const data = isAll
+      ? getAllSeries()
+      : dataByModel.get(model) || new Array(labels.length).fill(0);
     const colorIndex = index % CHART_COLORS.length;
     const style = CHART_COLORS[colorIndex];
     const shouldFill = modelsToShow.length === 1 || (isAll && modelsToShow.length > 1);
@@ -1753,7 +2114,7 @@ export function buildChartData(
       pointBackgroundColor: style.borderColor,
       pointBorderColor: style.borderColor,
       fill: shouldFill,
-      tension: 0.35
+      tension: 0.35,
     };
   });
 
@@ -1821,7 +2182,12 @@ export function calculateStatusBarData(
   // Filter and bucket the usage details
   usageDetails.forEach((detail) => {
     const timestamp = resolveUsageDetailTimestampMs(detail);
-    if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > now) {
+    if (
+      !Number.isFinite(timestamp) ||
+      timestamp <= 0 ||
+      timestamp < windowStart ||
+      timestamp > now
+    ) {
       return;
     }
 
@@ -1883,7 +2249,7 @@ export function calculateStatusBarData(
     blockDetails,
     successRate,
     totalSuccess,
-    totalFailure
+    totalFailure,
   };
 }
 
@@ -1901,9 +2267,7 @@ export interface ServiceHealthData {
   cols: number;
 }
 
-export function calculateServiceHealthData(
-  usageDetails: UsageDetail[]
-): ServiceHealthData {
+export function calculateServiceHealthData(usageDetails: UsageDetail[]): ServiceHealthData {
   const ROWS = 7;
   const COLS = 96;
   const BLOCK_COUNT = ROWS * COLS; // 672
@@ -1923,7 +2287,12 @@ export function calculateServiceHealthData(
 
   usageDetails.forEach((detail) => {
     const timestamp = resolveUsageDetailTimestampMs(detail);
-    if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > now) {
+    if (
+      !Number.isFinite(timestamp) ||
+      timestamp <= 0 ||
+      timestamp < windowStart ||
+      timestamp > now
+    ) {
       return;
     }
 
@@ -2006,7 +2375,12 @@ export function calculateServiceHealthDataFromUsage(usageData: unknown): Service
 
   bucketMap.forEach((bucket, key) => {
     const timestamp = parseUsageTimestampMs(key);
-    if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > now) {
+    if (
+      !Number.isFinite(timestamp) ||
+      timestamp <= 0 ||
+      timestamp < windowStart ||
+      timestamp > now
+    ) {
       return;
     }
     const ageMs = now - timestamp;
@@ -2039,7 +2413,7 @@ export function calculateServiceHealthDataFromUsage(usageData: unknown): Service
       failure: stat.failure,
       rate: total > 0 ? stat.success / total : -1,
       startTime: blockStartTime,
-      endTime: blockStartTime + BLOCK_DURATION_MS
+      endTime: blockStartTime + BLOCK_DURATION_MS,
     });
   });
 
@@ -2052,11 +2426,14 @@ export function calculateServiceHealthDataFromUsage(usageData: unknown): Service
     totalSuccess,
     totalFailure,
     rows: ROWS,
-    cols: COLS
+    cols: COLS,
   };
 }
 
-export function computeKeyStats(usageData: unknown, masker: (val: string) => string = maskApiKey): KeyStats {
+export function computeKeyStats(
+  usageData: unknown,
+  masker: (val: string) => string = maskApiKey
+): KeyStats {
   const apis = getApisRecord(usageData);
   if (!apis) {
     return { bySource: {}, byAuthIndex: {} };
@@ -2111,7 +2488,7 @@ export function computeKeyStats(usageData: unknown, masker: (val: string) => str
 
   return {
     bySource: sourceStats,
-    byAuthIndex: authIndexStats
+    byAuthIndex: authIndexStats,
   };
 }
 
@@ -2207,7 +2584,11 @@ export function buildHourlyTokenBreakdown(
         tokenStatsByHour.forEach((tokens, bucketKey) => {
           const bucketStart = parseUsageTimestampMs(bucketKey);
           const lastBucketTime = earliestTime + (labels.length - 1) * hourMs;
-          if (!Number.isFinite(bucketStart) || bucketStart < earliestTime || bucketStart > lastBucketTime) {
+          if (
+            !Number.isFinite(bucketStart) ||
+            bucketStart < earliestTime ||
+            bucketStart > lastBucketTime
+          ) {
             return;
           }
           const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);
@@ -2245,9 +2626,10 @@ export function buildHourlyTokenBreakdown(
     const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
     const cached = Math.max(
       typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
     );
-    const reasoning = typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
+    const reasoning =
+      typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
 
     dataByCategory.input[bucketIndex] += input;
     dataByCategory.output[bucketIndex] += output;
@@ -2295,9 +2677,9 @@ export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeri
           input: labels.map((l) => dayMap[l].input),
           output: labels.map((l) => dayMap[l].output),
           cached: labels.map((l) => dayMap[l].cached),
-          reasoning: labels.map((l) => dayMap[l].reasoning)
+          reasoning: labels.map((l) => dayMap[l].reasoning),
         },
-        hasData
+        hasData,
       };
     }
   }
@@ -2319,9 +2701,10 @@ export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeri
     const output = typeof tokens.output_tokens === 'number' ? Math.max(tokens.output_tokens, 0) : 0;
     const cached = Math.max(
       typeof tokens.cached_tokens === 'number' ? Math.max(tokens.cached_tokens, 0) : 0,
-      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0,
+      typeof tokens.cache_tokens === 'number' ? Math.max(tokens.cache_tokens, 0) : 0
     );
-    const reasoning = typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
+    const reasoning =
+      typeof tokens.reasoning_tokens === 'number' ? Math.max(tokens.reasoning_tokens, 0) : 0;
 
     dayMap[dayLabel].input += input;
     dayMap[dayLabel].output += output;
@@ -2390,7 +2773,11 @@ export function buildHourlyCostSeries(
         tokenStatsByHour.forEach((tokens, bucketKey) => {
           const bucketStart = parseUsageTimestampMs(bucketKey);
           const lastBucketTime = earliestTime + (labels.length - 1) * hourMs;
-          if (!Number.isFinite(bucketStart) || bucketStart < earliestTime || bucketStart > lastBucketTime) {
+          if (
+            !Number.isFinite(bucketStart) ||
+            bucketStart < earliestTime ||
+            bucketStart > lastBucketTime
+          ) {
             return;
           }
           const bucketIndex = Math.floor((bucketStart - earliestTime) / hourMs);

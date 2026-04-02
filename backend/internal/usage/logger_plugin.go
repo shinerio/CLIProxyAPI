@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultRetainedRequestDetails = 500
-	recentMinuteBucketLimit       = 60
+	recentMinuteBucketLimit       = 7 * 24 * 60
 	recentHourBucketLimit         = 7 * 24
 	serviceHealthBucketLimit      = 7 * 96
 )
@@ -80,11 +80,13 @@ type detailRef struct {
 type RequestStatistics struct {
 	mu sync.RWMutex
 
-	totalRequests int64
-	successCount  int64
-	failureCount  int64
-	totalTokens   int64
-	tokenStats    TokenStats
+	totalRequests        int64
+	successCount         int64
+	failureCount         int64
+	totalTokens          int64
+	tokenStats           TokenStats
+	maxRequestsPerMinute int64
+	maxTokensPerMinute   int64
 
 	apis map[string]*apiStats
 
@@ -155,11 +157,13 @@ type ServiceHealthSnapshot struct {
 
 // StatisticsSnapshot represents an immutable view of the aggregated metrics.
 type StatisticsSnapshot struct {
-	TotalRequests int64      `json:"total_requests"`
-	SuccessCount  int64      `json:"success_count"`
-	FailureCount  int64      `json:"failure_count"`
-	TotalTokens   int64      `json:"total_tokens"`
-	TokenStats    TokenStats `json:"token_stats"`
+	TotalRequests        int64      `json:"total_requests"`
+	SuccessCount         int64      `json:"success_count"`
+	FailureCount         int64      `json:"failure_count"`
+	TotalTokens          int64      `json:"total_tokens"`
+	TokenStats           TokenStats `json:"token_stats"`
+	MaxRequestsPerMinute int64      `json:"max_requests_per_minute,omitempty"`
+	MaxTokensPerMinute   int64      `json:"max_tokens_per_minute,omitempty"`
 
 	APIs map[string]APISnapshot `json:"apis"`
 
@@ -294,6 +298,8 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	result.FailureCount = s.failureCount
 	result.TotalTokens = s.totalTokens
 	result.TokenStats = s.tokenStats
+	result.MaxRequestsPerMinute = s.maxRequestsPerMinute
+	result.MaxTokensPerMinute = s.maxTokensPerMinute
 
 	result.APIs = make(map[string]APISnapshot, len(s.apis))
 	for apiName, stats := range s.apis {
@@ -383,6 +389,8 @@ func (s *RequestStatistics) mergeAggregateSnapshotLocked(
 	s.failureCount += snapshot.FailureCount
 	s.totalTokens += snapshot.TotalTokens
 	s.tokenStats = addTokenStats(s.tokenStats, normaliseTokenStats(snapshot.TokenStats))
+	s.maxRequestsPerMinute = maxInt64(s.maxRequestsPerMinute, snapshot.MaxRequestsPerMinute)
+	s.maxTokensPerMinute = maxInt64(s.maxTokensPerMinute, snapshot.MaxTokensPerMinute)
 
 	mergeInt64Map(s.requestsByDay, snapshot.RequestsByDay)
 	mergeLegacyHourMap(s.requestsByHour, snapshot.RequestsByHour)
@@ -391,6 +399,7 @@ func (s *RequestStatistics) mergeAggregateSnapshotLocked(
 	mergeInt64Map(s.recentRequestsByMinute, snapshot.RecentRequestsByMinute)
 	mergeInt64Map(s.recentTokensByMinute, snapshot.RecentTokensByMinute)
 	mergeServiceHealthMap(s.serviceHealthByBucket, snapshot.ServiceHealthByBucket)
+	s.refreshPerMinutePeaksLocked()
 	s.pruneRecentMapsLocked(time.Now().UTC())
 
 	for apiName, apiSnapshot := range snapshot.APIs {
@@ -673,6 +682,8 @@ func (s *RequestStatistics) updateTopLevelBucketsLocked(timestamp time.Time, tok
 	if !timestamp.Before(cutoffMinute) {
 		s.recentRequestsByMinute[minuteKey]++
 		s.recentTokensByMinute[minuteKey] += tokens.TotalTokens
+		s.maxRequestsPerMinute = maxInt64(s.maxRequestsPerMinute, s.recentRequestsByMinute[minuteKey])
+		s.maxTokensPerMinute = maxInt64(s.maxTokensPerMinute, s.recentTokensByMinute[minuteKey])
 	}
 
 	cutoffQuarter := nowUTC.Add(-time.Duration(serviceHealthBucketLimit-1) * 15 * time.Minute)
@@ -773,7 +784,9 @@ func summarizeSnapshotModel(snapshot ModelSnapshot) snapshotModelSummary {
 }
 
 func snapshotHasAggregateFields(snapshot StatisticsSnapshot) bool {
-	if !isZeroTokenStats(snapshot.TokenStats) ||
+	if snapshot.MaxRequestsPerMinute != 0 ||
+		snapshot.MaxTokensPerMinute != 0 ||
+		!isZeroTokenStats(snapshot.TokenStats) ||
 		len(snapshot.RecentRequestsByMinute) > 0 ||
 		len(snapshot.RecentTokensByMinute) > 0 ||
 		len(snapshot.ServiceHealthByBucket) > 0 {
@@ -817,6 +830,31 @@ func dedupKey(apiName, modelName string, detail RequestDetail) string {
 		tokens.CachedTokens,
 		tokens.TotalTokens,
 	)
+}
+
+func maxInt64(values ...int64) int64 {
+	var maxValue int64
+	for _, value := range values {
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	return maxValue
+}
+
+func (s *RequestStatistics) refreshPerMinutePeaksLocked() {
+	s.maxRequestsPerMinute = maxInt64(s.maxRequestsPerMinute, maxValueInMap(s.recentRequestsByMinute))
+	s.maxTokensPerMinute = maxInt64(s.maxTokensPerMinute, maxValueInMap(s.recentTokensByMinute))
+}
+
+func maxValueInMap(values map[string]int64) int64 {
+	var maxValue int64
+	for _, value := range values {
+		if value > maxValue {
+			maxValue = value
+		}
+	}
+	return maxValue
 }
 
 func resolveAPIIdentifier(ctx context.Context, record coreusage.Record) string {

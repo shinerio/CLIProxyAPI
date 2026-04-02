@@ -117,8 +117,13 @@
     "quota_management": "Quota Management",
     "usage_stats": "Usage Statistics",
     "config_management": "Config Panel",
+    "client_auth": "Client Authentication",
     "logs": "Logs Viewer",
     "system_info": "Management Center Info"
+  },
+  "client_auth": {
+    "title": "Client Authentication",
+    "description": "Manage auth-dir and client API keys separately from remote management settings."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -942,6 +947,8 @@
     "success_requests": "Success Requests",
     "failed_requests": "Failed Requests",
     "total_tokens": "Total Tokens",
+    "max_requests_per_minute": "Peak Requests/Min",
+    "max_tokens_per_minute": "Peak Tokens/Min",
     "cached_tokens": "Cached Tokens",
     "reasoning_tokens": "Reasoning Tokens",
     "rpm_30m": "RPM",
@@ -1031,6 +1038,7 @@
     "request_events_limit_hint": "Showing {{shown}} of {{total}} events to keep rendering responsive.",
     "input_tokens": "Input Tokens",
     "output_tokens": "Output Tokens",
+    "range_peak_hint": "Highest single-minute value in the selected range",
     "last_updated": "Updated"
   },
   "stats": {
