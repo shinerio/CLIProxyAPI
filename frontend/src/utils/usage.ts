@@ -74,6 +74,8 @@ export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
 const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
+const USAGE_ISO_NANO_TIMESTAMP_REGEX =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)(Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/;
 const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
@@ -109,6 +111,87 @@ const toUsageSummaryFields = (summary: UsageSummary) => ({
   failure_count: summary.failureCount,
   total_tokens: summary.totalTokens
 });
+
+const normalizeEpochMs = (value: number): number => {
+  if (!Number.isFinite(value) || Number.isNaN(value)) {
+    return 0;
+  }
+
+  const abs = Math.abs(value);
+  if (abs < 1e11) return Math.round(value * 1000);
+  if (abs < 1e14) return Math.round(value);
+  if (abs < 1e17) return Math.round(value / 1000);
+  return Math.round(value / 1e6);
+};
+
+export function parseUsageTimestampMs(value: unknown): number {
+  if (value instanceof Date) {
+    const time = value.getTime();
+    return Number.isFinite(time) ? time : 0;
+  }
+
+  if (typeof value === 'number') {
+    return normalizeEpochMs(value);
+  }
+
+  if (typeof value !== 'string') {
+    return 0;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 0;
+  }
+
+  if (/^[+-]?\d+(\.\d+)?$/.test(trimmed)) {
+    return normalizeEpochMs(Number(trimmed));
+  }
+
+  const parseCandidates = [trimmed];
+  if (trimmed.includes(' ') && !trimmed.includes('T')) {
+    parseCandidates.push(trimmed.replace(' ', 'T'));
+  }
+
+  for (const candidate of parseCandidates) {
+    const parsed = Date.parse(candidate);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+
+    const normalizedFraction = candidate.replace(
+      USAGE_ISO_NANO_TIMESTAMP_REGEX,
+      (_match, base: string, fraction: string, tz: string) => {
+        const milliseconds = fraction.slice(1, 4).padEnd(3, '0');
+        const normalizedTimezone =
+          tz.length === 5 && (tz.startsWith('+') || tz.startsWith('-'))
+            ? `${tz.slice(0, 3)}:${tz.slice(3)}`
+            : tz;
+        return `${base}.${milliseconds}${normalizedTimezone}`;
+      }
+    );
+    if (normalizedFraction !== candidate) {
+      const normalizedParsed = Date.parse(normalizedFraction);
+      if (Number.isFinite(normalizedParsed)) {
+        return normalizedParsed;
+      }
+    }
+  }
+
+  return 0;
+}
+
+export function resolveUsageDetailTimestampMs(
+  detail: Pick<UsageDetail, 'timestamp' | '__timestampMs'>
+): number {
+  if (
+    typeof detail.__timestampMs === 'number' &&
+    Number.isFinite(detail.__timestampMs) &&
+    detail.__timestampMs > 0
+  ) {
+    return detail.__timestampMs;
+  }
+  return parseUsageTimestampMs(detail.timestamp);
+}
 
 export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, nowMs: number = Date.now()): T {
   if (range === 'all') {
@@ -158,8 +241,8 @@ export function filterUsageByTimeRange<T>(usageData: T, range: UsageTimeRange, n
         if (!detailRecord || typeof detailRecord.timestamp !== 'string') {
           return;
         }
-        const timestamp = Date.parse(detailRecord.timestamp);
-        if (Number.isNaN(timestamp) || timestamp < windowStart || timestamp > nowMs) {
+        const timestamp = parseUsageTimestampMs(detailRecord.timestamp);
+        if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > nowMs) {
           return;
         }
 
@@ -489,7 +572,7 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
       modelDetails.forEach((detailRaw) => {
         if (!isRecord(detailRaw) || typeof detailRaw.timestamp !== 'string') return;
         const timestamp = detailRaw.timestamp;
-        const timestampMs = Date.parse(timestamp);
+        const timestampMs = parseUsageTimestampMs(timestamp);
         const tokensRaw = isRecord(detailRaw.tokens) ? detailRaw.tokens : {};
         details.push({
           timestamp,
@@ -498,7 +581,7 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
           tokens: tokensRaw as unknown as UsageDetail['tokens'],
           failed: detailRaw.failed === true,
           __modelName: modelName,
-          __timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
+          __timestampMs: timestampMs > 0 ? timestampMs : 0,
         });
       });
     });
@@ -560,7 +643,7 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
       modelDetails.forEach((detailRaw) => {
         if (!isRecord(detailRaw) || typeof detailRaw.timestamp !== 'string') return;
         const timestamp = detailRaw.timestamp;
-        const timestampMs = Date.parse(timestamp);
+        const timestampMs = parseUsageTimestampMs(timestamp);
         const tokensRaw = isRecord(detailRaw.tokens) ? detailRaw.tokens : {};
         details.push({
           timestamp,
@@ -572,7 +655,7 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
           __endpoint: endpoint,
           __endpointMethod: endpointMethod,
           __endpointPath: endpointPath,
-          __timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
+          __timestampMs: timestampMs > 0 ? timestampMs : 0,
         });
       });
     });
@@ -651,8 +734,7 @@ export function calculateRecentPerMinuteRates(
   let tokenCount = 0;
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp < windowStart || timestamp > now) {
       return;
     }
@@ -1011,8 +1093,7 @@ export function buildHourlySeriesByModel(
   }
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0) {
       return;
     }
@@ -1068,8 +1149,7 @@ export function buildDailySeriesByModel(
   }
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0) {
       return;
     }
@@ -1282,8 +1362,7 @@ export function calculateStatusBarData(
 
   // Filter and bucket the usage details
   usageDetails.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > now) {
       return;
     }
@@ -1385,8 +1464,7 @@ export function calculateServiceHealthData(
   let totalFailure = 0;
 
   usageDetails.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp < windowStart || timestamp > now) {
       return;
     }
@@ -1585,8 +1663,7 @@ export function buildHourlyTokenBreakdown(
   let hasData = false;
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return;
     const normalized = new Date(timestamp);
     normalized.setMinutes(0, 0, 0);
@@ -1624,8 +1701,7 @@ export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeri
   let hasData = false;
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return;
     const dayLabel = formatDayLabel(new Date(timestamp));
     if (!dayLabel) return;
@@ -1698,8 +1774,7 @@ export function buildHourlyCostSeries(
   let hasData = false;
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return;
     const normalized = new Date(timestamp);
     normalized.setMinutes(0, 0, 0);
@@ -1731,8 +1806,7 @@ export function buildDailyCostSeries(
   let hasData = false;
 
   details.forEach((detail) => {
-    const timestamp =
-      typeof detail.__timestampMs === 'number' ? detail.__timestampMs : Date.parse(detail.timestamp);
+    const timestamp = resolveUsageDetailTimestampMs(detail);
     if (!Number.isFinite(timestamp) || timestamp <= 0) return;
     const dayLabel = formatDayLabel(new Date(timestamp));
     if (!dayLabel) return;

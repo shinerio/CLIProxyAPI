@@ -154,9 +154,15 @@ export function UsagePage() {
     [t]
   );
 
+  const nowMs = lastRefreshedAt?.getTime() ?? 0;
+
   const filteredUsage = useMemo(
-    () => (usage ? filterUsageByTimeRange(usage, timeRange) : null),
-    [usage, timeRange]
+    () => {
+      if (!usage) return null;
+      if (nowMs <= 0) return usage;
+      return filterUsageByTimeRange(usage, timeRange, nowMs);
+    },
+    [nowMs, timeRange, usage]
   );
   const hourWindowHours =
     timeRange === 'all' ? undefined : HOUR_WINDOW_BY_TIME_RANGE[timeRange];
@@ -186,8 +192,6 @@ export function UsagePage() {
       // Ignore storage errors.
     }
   }, [timeRange]);
-
-  const nowMs = lastRefreshedAt?.getTime() ?? 0;
 
   // Sparklines hook
   const {
@@ -296,6 +300,7 @@ export function UsagePage() {
         loading={loading}
         modelPrices={modelPrices}
         nowMs={nowMs}
+        timeRange={timeRange}
         sparklines={{
           requests: requestsSparkline,
           tokens: tokensSparkline,

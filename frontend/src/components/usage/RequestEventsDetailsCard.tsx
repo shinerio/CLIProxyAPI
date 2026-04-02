@@ -12,6 +12,7 @@ import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver
 import {
   collectUsageDetails,
   extractTotalTokens,
+  resolveUsageDetailTimestampMs,
   normalizeAuthIndex
 } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
@@ -120,11 +121,8 @@ export function RequestEventsDetailsCard({
     return details
       .map((detail, index) => {
         const timestamp = detail.timestamp;
-        const timestampMs =
-          typeof detail.__timestampMs === 'number' && detail.__timestampMs > 0
-            ? detail.__timestampMs
-            : Date.parse(timestamp);
-        const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
+        const timestampMs = resolveUsageDetailTimestampMs(detail);
+        const date = timestampMs > 0 ? new Date(timestampMs) : null;
         const sourceRaw = String(detail.source ?? '').trim();
         const authIndexRaw = detail.auth_index as unknown;
         const authIndex =

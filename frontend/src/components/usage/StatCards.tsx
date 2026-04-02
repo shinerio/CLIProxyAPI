@@ -9,6 +9,8 @@ import {
   calculateCost,
   collectUsageDetails,
   extractTotalTokens,
+  resolveUsageDetailTimestampMs,
+  type UsageTimeRange,
   type ModelPrice
 } from '@/utils/usage';
 import { sparklineOptions } from '@/utils/usage/chartConfig';
@@ -33,6 +35,7 @@ export interface StatCardsProps {
   loading: boolean;
   modelPrices: Record<string, ModelPrice>;
   nowMs: number;
+  timeRange: UsageTimeRange;
   sparklines: {
     requests: SparklineBundle | null;
     tokens: SparklineBundle | null;
@@ -42,15 +45,23 @@ export interface StatCardsProps {
   };
 }
 
-export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: StatCardsProps) {
+const FIXED_WINDOW_MINUTES: Record<Exclude<UsageTimeRange, 'all'>, number> = {
+  '7h': 7 * 60,
+  '24h': 24 * 60,
+  '7d': 7 * 24 * 60
+};
+
+export function StatCards({ usage, loading, modelPrices, nowMs, timeRange, sparklines }: StatCardsProps) {
   const { t } = useTranslation();
 
   const hasPrices = Object.keys(modelPrices).length > 0;
+  const rateLabel = `${t('usage_stats.rpm_30m')} (${t(`usage_stats.range_${timeRange}`)})`;
+  const tokenRateLabel = `${t('usage_stats.tpm_30m')} (${t(`usage_stats.range_${timeRange}`)})`;
 
   const { tokenBreakdown, rateStats, totalCost } = useMemo(() => {
     const empty = {
       tokenBreakdown: { cachedTokens: 0, reasoningTokens: 0 },
-      rateStats: { rpm: 0, tpm: 0, windowMinutes: 30, requestCount: 0, tokenCount: 0 },
+      rateStats: { rpm: 0, tpm: 0, windowMinutes: 0, requestCount: 0, tokenCount: 0 },
       totalCost: 0
     };
 
@@ -61,13 +72,9 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
     let cachedTokens = 0;
     let reasoningTokens = 0;
     let totalCost = 0;
-
-    const now = nowMs;
-    const windowMinutes = 30;
-    const windowStart = now - windowMinutes * 60 * 1000;
     let requestCount = 0;
     let tokenCount = 0;
-    const hasValidNow = Number.isFinite(now) && now > 0;
+    let oldestTimestamp = Number.POSITIVE_INFINITY;
 
     details.forEach((detail) => {
       const tokens = detail.tokens;
@@ -79,10 +86,13 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
         reasoningTokens += tokens.reasoning_tokens;
       }
 
-      const timestamp = detail.__timestampMs ?? 0;
-      if (hasValidNow && Number.isFinite(timestamp) && timestamp >= windowStart && timestamp <= now) {
+      const timestamp = resolveUsageDetailTimestampMs(detail);
+      if (Number.isFinite(timestamp) && timestamp > 0 && (!Number.isFinite(nowMs) || nowMs <= 0 || timestamp <= nowMs)) {
         requestCount += 1;
         tokenCount += extractTotalTokens(detail);
+        if (timestamp < oldestTimestamp) {
+          oldestTimestamp = timestamp;
+        }
       }
 
       if (hasPrices) {
@@ -90,6 +100,12 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
       }
     });
 
+    const windowMinutes =
+      timeRange === 'all'
+        ? Number.isFinite(oldestTimestamp) && Number.isFinite(nowMs) && nowMs > 0
+          ? Math.max((nowMs - oldestTimestamp) / 60000, 1)
+          : Math.max(requestCount, 1)
+        : FIXED_WINDOW_MINUTES[timeRange];
     const denominator = windowMinutes > 0 ? windowMinutes : 1;
     return {
       tokenBreakdown: { cachedTokens, reasoningTokens },
@@ -102,7 +118,7 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
       },
       totalCost
     };
-  }, [hasPrices, modelPrices, nowMs, usage]);
+  }, [hasPrices, modelPrices, nowMs, timeRange, usage]);
 
   const statsCards: StatCardData[] = [
     {
@@ -149,7 +165,7 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
     },
     {
       key: 'rpm',
-      label: t('usage_stats.rpm_30m'),
+      label: rateLabel,
       icon: <IconTimer size={16} />,
       accent: '#22c55e',
       accentSoft: 'rgba(34, 197, 94, 0.18)',
@@ -164,7 +180,7 @@ export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: St
     },
     {
       key: 'tpm',
-      label: t('usage_stats.tpm_30m'),
+      label: tokenRateLabel,
       icon: <IconTrendingUp size={16} />,
       accent: '#f97316',
       accentSoft: 'rgba(249, 115, 22, 0.18)',
