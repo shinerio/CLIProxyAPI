@@ -383,6 +383,17 @@ export function IconSidebarConfig({ size = 20, ...props }: IconProps) {
   );
 }
 
+export function IconSidebarClientAuth({ size = 20, ...props }: IconProps) {
+  return (
+    <svg {...sidebarSvgProps} width={size} height={size} {...props}>
+      <circle cx="8" cy="11" r="3.5" />
+      <path d="M11.5 11H21" />
+      <path d="M16 7.5v7" />
+      <path d="M19 9.5v3" />
+    </svg>
+  );
+}
+
 export function IconSidebarProviders({ size = 20, ...props }: IconProps) {
   return (
     <svg {...sidebarSvgProps} width={size} height={size} {...props}>

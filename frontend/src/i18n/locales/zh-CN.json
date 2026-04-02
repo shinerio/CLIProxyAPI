@@ -117,8 +117,13 @@
     "quota_management": "配额管理",
     "usage_stats": "使用统计",
     "config_management": "配置面板",
+    "client_auth": "客户端认证",
     "logs": "日志查看",
     "system_info": "中心信息"
+  },
+  "client_auth": {
+    "title": "客户端认证",
+    "description": "管理客户端访问目录和客户端 API 密钥"
   },
   "dashboard": {
     "title": "仪表盘",

@@ -117,8 +117,13 @@
     "quota_management": "Quota Management",
     "usage_stats": "Usage Statistics",
     "config_management": "Config Panel",
+    "client_auth": "Client Authentication",
     "logs": "Logs Viewer",
     "system_info": "Management Center Info"
+  },
+  "client_auth": {
+    "title": "Client Authentication",
+    "description": "Manage client access directory and client API keys"
   },
   "dashboard": {
     "title": "Dashboard",
