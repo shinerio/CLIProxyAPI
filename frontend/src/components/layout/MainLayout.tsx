@@ -14,6 +14,7 @@ import { PageTransition } from '@/components/common/PageTransition';
 import { MainRoutes } from '@/router/MainRoutes';
 import {
   IconSidebarAuthFiles,
+  IconSidebarClientAuth,
   IconSidebarConfig,
   IconSidebarDashboard,
   IconSidebarLogs,
@@ -44,6 +45,7 @@ const sidebarIcons: Record<string, ReactNode> = {
   quota: <IconSidebarQuota size={18} />,
   usage: <IconSidebarUsage size={18} />,
   config: <IconSidebarConfig size={18} />,
+  clientAuth: <IconSidebarClientAuth size={18} />,
   logs: <IconSidebarLogs size={18} />,
   system: <IconSidebarSystem size={18} />,
 };
@@ -421,6 +423,7 @@ export function MainLayout() {
   const navItems = [
     { path: '/', label: t('nav.dashboard'), icon: sidebarIcons.dashboard },
     { path: '/config', label: t('nav.config_management'), icon: sidebarIcons.config },
+    { path: '/client-auth', label: t('nav.client_auth'), icon: sidebarIcons.clientAuth },
     { path: '/ai-providers', label: t('nav.ai_providers'), icon: sidebarIcons.aiProviders },
     { path: '/auth-files', label: t('nav.auth_files'), icon: sidebarIcons.authFiles },
     { path: '/oauth', label: t('nav.oauth', { defaultValue: 'OAuth' }), icon: sidebarIcons.oauth },
