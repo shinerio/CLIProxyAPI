@@ -243,7 +243,7 @@ function normalizeVisualApiKeyEntries(value: VisualApiKeyEntry[]): VisualApiKeyE
   }));
 }
 
-function useCredentialOptions() {
+export function useCredentialOptions() {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
   const fetchConfig = useConfigStore((state) => state.fetchConfig);
