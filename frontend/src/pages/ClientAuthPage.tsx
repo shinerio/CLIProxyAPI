@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { isMap, parseDocument } from 'yaml';
+import { parseDocument } from 'yaml';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -10,12 +10,12 @@ import {
   useCredentialOptions,
 } from '@/components/config/VisualConfigEditorBlocks';
 import { DiffModal } from '@/components/config/DiffModal';
+import { applyClientAuthChangesToYaml } from '@/features/clientAuth/yaml';
 import { useVisualConfig } from '@/hooks/useVisualConfig';
 import { configFileApi } from '@/services/api/configFile';
 import { useAuthStore, useConfigStore, useNotificationStore } from '@/stores';
 import { copyToClipboard } from '@/utils/clipboard';
 import { maskApiKey } from '@/utils/format';
-import type { VisualApiKeyEntry } from '@/types/visualConfig';
 import {
   ClientAuthScopeFilter,
   ClientAuthSort,
@@ -23,90 +23,6 @@ import {
   matchesClientAuthSearch,
 } from '@/features/clientAuth/utils';
 import styles from './ClientAuthPage.module.scss';
-
-type YamlDocument = ReturnType<typeof parseDocument>;
-type YamlPath = string[];
-
-function docHas(doc: YamlDocument, path: YamlPath): boolean {
-  return doc.hasIn(path);
-}
-
-function deleteIfMapEmpty(doc: YamlDocument, path: YamlPath): void {
-  const value = doc.getIn(path, true);
-  if (!isMap(value)) return;
-  if (value.items.length === 0) doc.deleteIn(path);
-}
-
-function setStringInDoc(doc: YamlDocument, path: YamlPath, value: string): void {
-  if (value.trim()) {
-    doc.setIn(path, value);
-    return;
-  }
-  if (docHas(doc, path)) {
-    doc.deleteIn(path);
-  }
-}
-
-function deleteLegacyApiKeysProvider(doc: YamlDocument): void {
-  if (docHas(doc, ['auth', 'providers', 'config-api-key', 'api-key-entries'])) {
-    doc.deleteIn(['auth', 'providers', 'config-api-key', 'api-key-entries']);
-  }
-  if (docHas(doc, ['auth', 'providers', 'config-api-key', 'api-keys'])) {
-    doc.deleteIn(['auth', 'providers', 'config-api-key', 'api-keys']);
-  }
-  deleteIfMapEmpty(doc, ['auth', 'providers', 'config-api-key']);
-  deleteIfMapEmpty(doc, ['auth', 'providers']);
-  deleteIfMapEmpty(doc, ['auth']);
-}
-
-function applyClientAuthChangesToYaml(
-  currentYaml: string,
-  authDir: string,
-  apiKeys: VisualApiKeyEntry[]
-): string {
-  try {
-    const doc = parseDocument(currentYaml);
-    if (doc.errors.length > 0) return currentYaml;
-    if (!isMap(doc.contents)) {
-      doc.contents = doc.createNode({}) as unknown as typeof doc.contents;
-    }
-
-    setStringInDoc(doc, ['auth-dir'], authDir);
-
-    const normalizedApiKeys = apiKeys
-      .map((entry) => ({
-        name: entry.name.trim(),
-        key: entry.key.trim(),
-        allowedAuthIndices: entry.allowedAuthIndices.map((item) => item.trim()).filter(Boolean),
-      }))
-      .filter((entry) => entry.key);
-
-    if (normalizedApiKeys.length > 0) {
-      doc.setIn(
-        ['api-keys'],
-        normalizedApiKeys.map((entry) =>
-          entry.name || entry.allowedAuthIndices.length > 0
-            ? {
-                ...(entry.name ? { name: entry.name } : {}),
-                key: entry.key,
-                ...(entry.allowedAuthIndices.length > 0
-                  ? { 'allowed-auth-indices': entry.allowedAuthIndices }
-                  : {}),
-              }
-            : entry.key
-        )
-      );
-    } else if (docHas(doc, ['api-keys'])) {
-      doc.deleteIn(['api-keys']);
-    }
-
-    deleteLegacyApiKeysProvider(doc);
-
-    return doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
-  } catch {
-    return currentYaml;
-  }
-}
 
 function buildScopeSummary(
   allowedAuthIndices: string[],
@@ -144,7 +60,7 @@ export function ClientAuthPage() {
     visualParseError,
     loadVisualValuesFromYaml,
     setVisualValues,
-  } = useVisualConfig();
+  } = useVisualConfig({ includeClientAuth: true });
   const { credentialOptionMap } = useCredentialOptions();
 
   const [loading, setLoading] = useState(true);

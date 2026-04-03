@@ -55,7 +55,7 @@ export function ConfigPage() {
     loadVisualValuesFromYaml,
     applyVisualChangesToYaml,
     setVisualValues,
-  } = useVisualConfig();
+  } = useVisualConfig({ includeClientAuth: false });
 
   const [activeTab, setActiveTab] = useState<ConfigEditorTab>(() => {
     const saved = localStorage.getItem('config-management:tab');

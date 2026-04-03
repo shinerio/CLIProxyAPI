@@ -243,6 +243,9 @@ function normalizeVisualApiKeyEntries(value: VisualApiKeyEntry[]): VisualApiKeyE
   }));
 }
 
+// This file intentionally exports both components and a shared hook so the
+// config editor and client-auth page resolve credential labels consistently.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useCredentialOptions() {
   const { t } = useTranslation();
   const config = useConfigStore((state) => state.config);
