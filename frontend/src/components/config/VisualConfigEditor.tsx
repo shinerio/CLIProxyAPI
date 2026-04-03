@@ -18,7 +18,6 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import {
   IconCode,
   IconDiamond,
-  IconKey,
   IconSatellite,
   IconSettings,
   IconShield,
@@ -37,18 +36,13 @@ import type {
   VisualConfigValidationErrors,
   VisualConfigValues,
 } from '@/types/visualConfig';
-import {
-  ApiKeysCardEditor,
-  PayloadFilterRulesEditor,
-  PayloadRulesEditor,
-} from './VisualConfigEditorBlocks';
+import { PayloadFilterRulesEditor, PayloadRulesEditor } from './VisualConfigEditorBlocks';
 import styles from './VisualConfigEditor.module.scss';
 
 type VisualSectionId =
   | 'server'
   | 'tls'
   | 'remote'
-  | 'auth'
   | 'system'
   | 'network'
   | 'quota'
@@ -226,10 +220,6 @@ export function VisualConfigEditor({
     validationErrors?.['streaming.nonstreamKeepaliveInterval']
   );
 
-  const handleApiKeysChange = useCallback(
-    (apiKeys: VisualConfigValues['apiKeys']) => onChange({ apiKeys }),
-    [onChange]
-  );
   const handlePayloadDefaultRulesChange = useCallback(
     (payloadDefaultRules: PayloadRule[]) => onChange({ payloadDefaultRules }),
     [onChange]
@@ -278,13 +268,6 @@ export function VisualConfigEditor({
         title: t('config_management.visual.sections.remote.title'),
         description: t('config_management.visual.sections.remote.description'),
         icon: IconSatellite,
-        errorCount: 0,
-      },
-      {
-        id: 'auth',
-        title: t('config_management.visual.sections.auth.title'),
-        description: t('config_management.visual.sections.auth.description'),
-        icon: IconKey,
         errorCount: 0,
       },
       {
@@ -725,40 +708,11 @@ export function VisualConfigEditor({
           </ConfigSection>
 
           <ConfigSection
-            id="auth"
-            ref={(node) => {
-              sectionRefs.current.auth = node;
-            }}
-            indexLabel="04"
-            icon={<IconKey size={16} />}
-            title={t('config_management.visual.sections.auth.title')}
-            description={t('config_management.visual.sections.auth.description')}
-          >
-            <SectionStack>
-              <Input
-                label={t('config_management.visual.sections.auth.auth_dir')}
-                placeholder="~/.cli-proxy-api"
-                value={values.authDir}
-                onChange={(e) => onChange({ authDir: e.target.value })}
-                disabled={disabled}
-                hint={t('config_management.visual.sections.auth.auth_dir_hint')}
-              />
-              <div className={styles.subsection}>
-                <ApiKeysCardEditor
-                  value={values.apiKeys}
-                  disabled={disabled}
-                  onChange={handleApiKeysChange}
-                />
-              </div>
-            </SectionStack>
-          </ConfigSection>
-
-          <ConfigSection
             id="system"
             ref={(node) => {
               sectionRefs.current.system = node;
             }}
-            indexLabel="05"
+            indexLabel="04"
             icon={<IconDiamond size={16} />}
             title={t('config_management.visual.sections.system.title')}
             description={t('config_management.visual.sections.system.description')}
@@ -826,7 +780,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.network = node;
             }}
-            indexLabel="06"
+            indexLabel="05"
             icon={<IconTrendingUp size={16} />}
             title={t('config_management.visual.sections.network.title')}
             description={t('config_management.visual.sections.network.description')}
@@ -925,7 +879,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.quota = node;
             }}
-            indexLabel="07"
+            indexLabel="06"
             icon={<IconTimer size={16} />}
             title={t('config_management.visual.sections.quota.title')}
             description={t('config_management.visual.sections.quota.description')}
@@ -953,7 +907,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.streaming = node;
             }}
-            indexLabel="08"
+            indexLabel="07"
             icon={<IconSatellite size={16} />}
             title={t('config_management.visual.sections.streaming.title')}
             description={t('config_management.visual.sections.streaming.description')}
@@ -1054,7 +1008,7 @@ export function VisualConfigEditor({
             ref={(node) => {
               sectionRefs.current.payload = node;
             }}
-            indexLabel="09"
+            indexLabel="08"
             icon={<IconCode size={16} />}
             title={t('config_management.visual.sections.payload.title')}
             description={t('config_management.visual.sections.payload.description')}

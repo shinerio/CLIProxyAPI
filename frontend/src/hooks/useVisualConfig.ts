@@ -1,96 +1,23 @@
 import { useCallback, useMemo, useState } from 'react';
 import { isMap, parse as parseYaml, parseDocument } from 'yaml';
+import {
+  applyClientAuthChangesToYaml,
+  resolveClientAuthValues,
+} from '@/features/clientAuth/yaml';
 import type {
   PayloadFilterRule,
   PayloadParamEntry,
   PayloadParamValueType,
   PayloadRule,
-  VisualApiKeyEntry,
   VisualConfigValues,
   VisualConfigValidationErrors,
   PayloadParamValidationErrorCode,
 } from '@/types/visualConfig';
-import { DEFAULT_VISUAL_VALUES, makeClientId } from '@/types/visualConfig';
+import { DEFAULT_VISUAL_VALUES } from '@/types/visualConfig';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
-}
-
-function extractApiKeyValue(raw: unknown): string | null {
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim();
-    return trimmed ? trimmed : null;
-  }
-
-  const record = asRecord(raw);
-  if (!record) return null;
-
-  const candidates = [record['api-key'], record.apiKey, record.key, record.Key];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string') {
-      const trimmed = candidate.trim();
-      if (trimmed) return trimmed;
-    }
-  }
-
-  return null;
-}
-
-function parseAllowedAuthIndices(raw: unknown): string[] {
-  const source = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[\n,]+/) : [];
-  const seen = new Set<string>();
-  const values: string[] = [];
-  source.forEach((item) => {
-    const trimmed = String(item ?? '').trim();
-    if (!trimmed || seen.has(trimmed)) return;
-    seen.add(trimmed);
-    values.push(trimmed);
-  });
-  return values;
-}
-
-function parseApiKeys(raw: unknown): VisualApiKeyEntry[] {
-  if (!Array.isArray(raw)) return [];
-
-  const entries: VisualApiKeyEntry[] = [];
-  for (const item of raw) {
-    const key = extractApiKeyValue(item);
-    if (!key) continue;
-    const record = asRecord(item);
-    const name = typeof record?.name === 'string' ? record.name.trim() : '';
-    const allowedAuthIndices = parseAllowedAuthIndices(
-      record?.['allowed-auth-indices'] ??
-        record?.allowedAuthIndices ??
-        record?.['allowed_auth_indices'] ??
-        record?.['allowed-auths'] ??
-        record?.allowedAuths
-    );
-    entries.push({
-      id: makeClientId(),
-      name,
-      key,
-      allowedAuthIndices,
-    });
-  }
-  return entries;
-}
-
-function resolveApiKeys(parsed: Record<string, unknown>): VisualApiKeyEntry[] {
-  if (Object.prototype.hasOwnProperty.call(parsed, 'api-keys')) {
-    return parseApiKeys(parsed['api-keys']);
-  }
-
-  const auth = asRecord(parsed.auth);
-  const providers = asRecord(auth?.providers);
-  const configApiKeyProvider = asRecord(providers?.['config-api-key']);
-  if (!configApiKeyProvider) return [];
-
-  if (Object.prototype.hasOwnProperty.call(configApiKeyProvider, 'api-key-entries')) {
-    return parseApiKeys(configApiKeyProvider['api-key-entries']);
-  }
-
-  return parseApiKeys(configApiKeyProvider['api-keys']);
 }
 
 type YamlDocument = ReturnType<typeof parseDocument>;
@@ -264,18 +191,6 @@ function parseRawPayloadParamValue(raw: unknown): string {
 function parsePayloadProtocol(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
   return raw.trim() ? raw : undefined;
-}
-
-function deleteLegacyApiKeysProvider(doc: YamlDocument): void {
-  if (docHas(doc, ['auth', 'providers', 'config-api-key', 'api-key-entries'])) {
-    doc.deleteIn(['auth', 'providers', 'config-api-key', 'api-key-entries']);
-  }
-  if (docHas(doc, ['auth', 'providers', 'config-api-key', 'api-keys'])) {
-    doc.deleteIn(['auth', 'providers', 'config-api-key', 'api-keys']);
-  }
-  deleteIfMapEmpty(doc, ['auth', 'providers', 'config-api-key']);
-  deleteIfMapEmpty(doc, ['auth', 'providers']);
-  deleteIfMapEmpty(doc, ['auth']);
 }
 
 function parsePayloadRules(rules: unknown): PayloadRule[] {
@@ -458,7 +373,11 @@ function serializeRawPayloadRulesForYaml(rules: PayloadRule[]): Array<Record<str
     .filter((rule) => rule.models.length > 0);
 }
 
-export function useVisualConfig() {
+type UseVisualConfigOptions = {
+  includeClientAuth?: boolean;
+};
+
+export function useVisualConfig({ includeClientAuth = true }: UseVisualConfigOptions = {}) {
   const [visualValues, setVisualValuesState] = useState<VisualConfigValues>({
     ...DEFAULT_VISUAL_VALUES,
   });
@@ -504,6 +423,12 @@ export function useVisualConfig() {
       const routing = asRecord(parsed.routing);
       const payload = asRecord(parsed.payload);
       const streaming = asRecord(parsed.streaming);
+      const clientAuthValues = includeClientAuth
+        ? resolveClientAuthValues(parsed)
+        : {
+            authDir: DEFAULT_VISUAL_VALUES.authDir,
+            apiKeys: DEFAULT_VISUAL_VALUES.apiKeys,
+          };
 
       const newValues: VisualConfigValues = {
         host: typeof parsed.host === 'string' ? parsed.host : '',
@@ -520,8 +445,8 @@ export function useVisualConfig() {
             : '',
         rmDisableControlPanel: Boolean(remoteManagement?.['disable-control-panel']),
 
-        authDir: typeof parsed['auth-dir'] === 'string' ? parsed['auth-dir'] : '',
-        apiKeys: resolveApiKeys(parsed),
+        authDir: clientAuthValues.authDir,
+        apiKeys: clientAuthValues.apiKeys,
 
         debug: Boolean(parsed.debug),
         commercialMode: Boolean(parsed['commercial-mode']),
@@ -564,7 +489,7 @@ export function useVisualConfig() {
       setVisualParseError(message);
       return { ok: false as const, error: message };
     }
-  }, []);
+  }, [includeClientAuth]);
 
   const applyVisualChangesToYaml = useCallback(
     (currentYaml: string): string => {
@@ -615,34 +540,6 @@ export function useVisualConfig() {
           }
           deleteIfMapEmpty(doc, ['remote-management']);
         }
-
-        setStringInDoc(doc, ['auth-dir'], values.authDir);
-        const apiKeys = values.apiKeys
-          .map((entry) => ({
-            name: entry.name.trim(),
-            key: entry.key.trim(),
-            allowedAuthIndices: entry.allowedAuthIndices.map((item) => item.trim()).filter(Boolean),
-          }))
-          .filter((entry) => entry.key);
-        if (apiKeys.length > 0) {
-          doc.setIn(
-            ['api-keys'],
-            apiKeys.map((entry) =>
-              entry.name || entry.allowedAuthIndices.length > 0
-                ? {
-                    ...(entry.name ? { name: entry.name } : {}),
-                    key: entry.key,
-                    ...(entry.allowedAuthIndices.length > 0
-                      ? { 'allowed-auth-indices': entry.allowedAuthIndices }
-                      : {}),
-                  }
-                : entry.key
-            )
-          );
-        } else if (docHas(doc, ['api-keys'])) {
-          doc.deleteIn(['api-keys']);
-        }
-        deleteLegacyApiKeysProvider(doc);
 
         setBooleanInDoc(doc, ['debug'], values.debug);
 
@@ -752,12 +649,15 @@ export function useVisualConfig() {
           deleteIfMapEmpty(doc, ['payload']);
         }
 
-        return doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
+        const nextYaml = doc.toString({ indent: 2, lineWidth: 120, minContentWidth: 0 });
+        return includeClientAuth
+          ? applyClientAuthChangesToYaml(nextYaml, values.authDir, values.apiKeys)
+          : nextYaml;
       } catch {
         return currentYaml;
       }
     },
-    [visualValues]
+    [includeClientAuth, visualValues]
   );
 
   const setVisualValues = useCallback((newValues: Partial<VisualConfigValues>) => {

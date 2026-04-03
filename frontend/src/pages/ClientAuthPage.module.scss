@@ -1,0 +1,338 @@
+@use '../styles/mixins' as *;
+@use '../styles/variables' as *;
+
+.container {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.pageHeader {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) auto;
+  gap: 24px;
+  align-items: end;
+  padding: clamp(22px, 3vw, 30px);
+  border-radius: 30px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  background:
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--primary-color) 16%, transparent),
+      transparent 32%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--bg-primary) 94%, transparent),
+      color-mix(in srgb, var(--bg-secondary) 96%, transparent)
+    );
+
+  @include mobile {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    align-items: stretch;
+  }
+}
+
+.pageHeaderCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pageEyebrow {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pageTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: clamp(32px, 4vw, 52px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.description {
+  margin: 0;
+  max-width: 46rem;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.pageMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+
+  @include mobile {
+    align-items: stretch;
+  }
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.statusDirty {
+  border-color: color-mix(in srgb, var(--warning-color) 32%, var(--border-color));
+}
+
+.statusError {
+  border-color: color-mix(in srgb, var(--danger-color) 45%, var(--border-color));
+  color: var(--danger-color);
+}
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+
+  @include mobile {
+    justify-content: stretch;
+
+    :global(.btn) {
+      flex: 1 1 calc(50% - 5px);
+    }
+  }
+}
+
+.workspaceShell {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+  padding: clamp(18px, 3vw, 28px);
+  border-radius: 32px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  box-shadow: var(--shadow);
+
+  @include mobile {
+    padding: 16px;
+    border-radius: 28px;
+  }
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+
+  @include tablet {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.summaryRail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+
+  @include tablet {
+    position: static;
+  }
+}
+
+.summaryCard {
+  :global(.card-header) {
+    margin-bottom: 12px;
+  }
+}
+
+.helpText {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.statList {
+  display: grid;
+  gap: 10px;
+}
+
+.statItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+}
+
+.statLabel {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.statValue {
+  color: var(--text-primary);
+  font-size: 22px;
+}
+
+.browserPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(180px, 0.45fr));
+  gap: 12px;
+  align-items: end;
+
+  @include tablet {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.searchField {
+  min-width: 0;
+
+  :global(.form-group) {
+    margin-bottom: 0;
+  }
+}
+
+.toolbarSelect {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toolbarLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.keyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.keyCard {
+  min-height: 100%;
+
+  :global(.card-header) {
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+
+.keyHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.keyTitle {
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.scopePill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scopeRestricted {
+  background: color-mix(in srgb, var(--primary-color) 12%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--primary-color) 72%, var(--text-primary));
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.keyMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+
+  & + & {
+    margin-top: 12px;
+  }
+}
+
+.metaLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.metaValue {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 28px;
+}
+
+.emptyTitle {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+}
+
+.emptyDescription {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}

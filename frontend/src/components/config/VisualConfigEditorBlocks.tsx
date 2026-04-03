@@ -228,6 +228,400 @@ function buildAuthFileCredentialDescriptors(files: AuthFileItem[]): CredentialDe
   return options;
 }
 
+function normalizeVisualApiKeyEntries(value: VisualApiKeyEntry[]): VisualApiKeyEntry[] {
+  return value.map((entry) => ({
+    id: entry.id || makeClientId(),
+    name: String(entry.name ?? '').trim(),
+    key: String(entry.key ?? '').trim(),
+    allowedAuthIndices: Array.isArray(entry.allowedAuthIndices)
+      ? Array.from(
+          new Set(
+            entry.allowedAuthIndices.map((item) => String(item ?? '').trim()).filter(Boolean)
+          )
+        )
+      : [],
+  }));
+}
+
+// This file intentionally exports both components and a shared hook so the
+// config editor and client-auth page resolve credential labels consistently.
+// eslint-disable-next-line react-refresh/only-export-components
+export function useCredentialOptions() {
+  const { t } = useTranslation();
+  const config = useConfigStore((state) => state.config);
+  const fetchConfig = useConfigStore((state) => state.fetchConfig);
+  const [credentialDescriptors, setCredentialDescriptors] = useState<CredentialDescriptor[]>([]);
+  const [credentialLoading, setCredentialLoading] = useState(true);
+  const [credentialLoadError, setCredentialLoadError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    Promise.allSettled([
+      authFilesApi
+        .list()
+        .then((response) => buildAuthFileCredentialDescriptors(response.files ?? [])),
+      (config ? Promise.resolve(config) : fetchConfig()).then((resolvedConfig) =>
+        buildProviderCredentialDescriptors(resolvedConfig as Config | null)
+      ),
+    ])
+      .then(([authFilesResult, providerResult]) => {
+        if (!active) return;
+        const authFileCredentials =
+          authFilesResult.status === 'fulfilled' ? authFilesResult.value : [];
+        const providerCredentials =
+          providerResult.status === 'fulfilled' ? providerResult.value : [];
+
+        setCredentialDescriptors(mergeCredentialDescriptors(authFileCredentials, providerCredentials));
+        setCredentialLoadError(
+          authFilesResult.status === 'rejected' || providerResult.status === 'rejected'
+        );
+      })
+      .finally(() => {
+        if (!active) return;
+        setCredentialLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [config, fetchConfig]);
+
+  const credentialOptions = useMemo(
+    () => buildCredentialOptions(credentialDescriptors, t),
+    [credentialDescriptors, t]
+  );
+  const credentialOptionMap = useMemo(
+    () => new Map(credentialOptions.map((option) => [option.authIndex, option])),
+    [credentialOptions]
+  );
+
+  return {
+    credentialLoading,
+    credentialLoadError,
+    credentialOptions,
+    credentialOptionMap,
+  };
+}
+
+type ApiKeyEditorModalProps = {
+  open: boolean;
+  mode: 'add' | 'edit';
+  initialEntry?: VisualApiKeyEntry | null;
+  sessionKey?: string | number;
+  disabled?: boolean;
+  onClose: () => void;
+  onSave: (entry: VisualApiKeyEntry) => void;
+};
+
+function ApiKeyEditorModalInner({
+  open,
+  mode,
+  initialEntry = null,
+  disabled,
+  onClose,
+  onSave,
+}: Omit<ApiKeyEditorModalProps, 'sessionKey'>) {
+  const { t } = useTranslation();
+  const apiKeyInputId = useId();
+  const apiKeyNameInputId = useId();
+  const apiKeyHintId = `${apiKeyInputId}-hint`;
+  const apiKeyErrorId = `${apiKeyInputId}-error`;
+  const [nameInputValue, setNameInputValue] = useState(initialEntry?.name ?? '');
+  const [inputValue, setInputValue] = useState(initialEntry?.key ?? '');
+  const [selectedAuthIndices, setSelectedAuthIndices] = useState<string[]>(
+    initialEntry?.allowedAuthIndices ?? []
+  );
+  const [credentialSearch, setCredentialSearch] = useState('');
+  const [formError, setFormError] = useState('');
+
+  const { credentialLoading, credentialLoadError, credentialOptions } = useCredentialOptions();
+
+  const visibleCredentialOptions = useMemo(() => {
+    const needle = credentialSearch.trim().toLowerCase();
+    if (!needle) return credentialOptions;
+
+    return credentialOptions.filter((option) => {
+      return (
+        option.title.toLowerCase().includes(needle) ||
+        option.subtitle.toLowerCase().includes(needle) ||
+        option.authIndex.toLowerCase().includes(needle)
+      );
+    });
+  }, [credentialOptions, credentialSearch]);
+
+  const credentialOptionMap = useMemo(
+    () => new Map(credentialOptions.map((option) => [option.authIndex, option])),
+    [credentialOptions]
+  );
+  const missingSelectedAuths = selectedAuthIndices.filter(
+    (authIndex) => !credentialOptionMap.has(authIndex)
+  );
+
+  const toggleAuthIndex = (authIndex: string) => {
+    setSelectedAuthIndices((current) =>
+      current.includes(authIndex)
+        ? current.filter((item) => item !== authIndex)
+        : [...current, authIndex]
+    );
+  };
+
+  const handleGenerate = () => {
+    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const array = new Uint8Array(17);
+    crypto.getRandomValues(array);
+    setInputValue('sk-' + Array.from(array, (b) => charset[b % charset.length]).join(''));
+    setFormError('');
+  };
+
+  const handleSave = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) {
+      setFormError(t('config_management.visual.api_keys.error_empty'));
+      return;
+    }
+    if (!isValidApiKeyCharset(trimmed)) {
+      setFormError(t('config_management.visual.api_keys.error_invalid'));
+      return;
+    }
+
+    const normalizedSelection = Array.from(
+      new Set(selectedAuthIndices.map((item) => item.trim()).filter(Boolean))
+    );
+    onSave({
+      id: initialEntry?.id ?? makeClientId(),
+      name: nameInputValue.trim(),
+      key: trimmed,
+      allowedAuthIndices: normalizedSelection,
+    });
+    onClose();
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={
+        mode === 'edit'
+          ? t('config_management.visual.api_keys.edit_title')
+          : t('config_management.visual.api_keys.add_title')
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={disabled}>
+            {t('config_management.visual.common.cancel')}
+          </Button>
+          <Button onClick={handleSave} disabled={disabled}>
+            {mode === 'edit'
+              ? t('config_management.visual.common.update')
+              : t('config_management.visual.common.add')}
+          </Button>
+        </>
+      }
+    >
+      <div className="form-group">
+        <label htmlFor={apiKeyNameInputId}>
+          {t('config_management.visual.api_keys.name_label')}
+        </label>
+        <input
+          id={apiKeyNameInputId}
+          className="input"
+          placeholder={t('config_management.visual.api_keys.name_placeholder')}
+          value={nameInputValue}
+          onChange={(e) => setNameInputValue(e.target.value)}
+          disabled={disabled}
+        />
+        <div className="hint">{t('config_management.visual.api_keys.name_hint')}</div>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor={apiKeyInputId}>
+          {t('config_management.visual.api_keys.input_label')}
+        </label>
+        <div className={styles.apiKeyModalInputRow}>
+          <input
+            id={apiKeyInputId}
+            className="input"
+            placeholder={t('config_management.visual.api_keys.input_placeholder')}
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            disabled={disabled}
+            aria-describedby={formError ? `${apiKeyErrorId} ${apiKeyHintId}` : apiKeyHintId}
+            aria-invalid={Boolean(formError)}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={handleGenerate}
+            disabled={disabled}
+          >
+            {t('config_management.visual.api_keys.generate')}
+          </Button>
+        </div>
+        <div id={apiKeyHintId} className="hint">
+          {t('config_management.visual.api_keys.input_hint')}
+        </div>
+        {formError ? (
+          <div id={apiKeyErrorId} className="error-box">
+            {formError}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="form-group">
+        <div className={styles.subsectionHeader}>
+          <div className={styles.subsectionTitle}>
+            {t('config_management.visual.api_keys.scope_label', {
+              defaultValue: 'Allowed credentials',
+            })}
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setSelectedAuthIndices([])}
+            disabled={disabled}
+          >
+            {t('config_management.visual.api_keys.scope_reset', {
+              defaultValue: 'Use all',
+            })}
+          </Button>
+        </div>
+        <div className="hint">
+          {t('config_management.visual.api_keys.scope_hint', {
+            defaultValue:
+              'Leave empty to allow all provider API keys and OAuth credentials. Select entries below to restrict this client key.',
+          })}
+        </div>
+
+        {credentialLoadError ? (
+          <div className="hint" style={{ marginTop: 8 }}>
+            {t('config_management.visual.api_keys.credentials_partial_warning', {
+              defaultValue:
+                'Some credentials could not be loaded. The list below may be incomplete.',
+            })}
+          </div>
+        ) : null}
+
+        <div className="form-group" style={{ marginTop: 12, marginBottom: 0 }}>
+          <input
+            className="input"
+            placeholder={t('config_management.visual.api_keys.scope_search_placeholder', {
+              defaultValue: 'Search credentials by provider, account, or auth_index',
+            })}
+            value={credentialSearch}
+            onChange={(e) => setCredentialSearch(e.target.value)}
+            disabled={disabled || credentialLoading}
+            aria-label={t('config_management.visual.api_keys.scope_search_aria', {
+              defaultValue: 'Search allowed credentials',
+            })}
+          />
+        </div>
+
+        {credentialLoading ? (
+          <div className={styles.emptyState}>
+            {t('config_management.visual.api_keys.credentials_loading', {
+              defaultValue: 'Loading credentials…',
+            })}
+          </div>
+        ) : credentialLoadError && credentialOptions.length === 0 ? (
+          <div className="error-box">
+            {t('config_management.visual.api_keys.credentials_failed', {
+              defaultValue:
+                'Unable to load provider keys or OAuth credentials right now. Try refreshing before saving scope restrictions.',
+            })}
+          </div>
+        ) : credentialOptions.length === 0 ? (
+          <div className={styles.emptyState}>
+            {t('config_management.visual.api_keys.credentials_empty', {
+              defaultValue: 'No provider keys or OAuth credentials available yet.',
+            })}
+          </div>
+        ) : visibleCredentialOptions.length === 0 ? (
+          <div className={styles.emptyState}>
+            {t('config_management.visual.api_keys.credentials_search_empty', {
+              defaultValue: 'No credentials match the current search.',
+            })}
+          </div>
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              maxHeight: 280,
+              overflow: 'auto',
+              marginTop: 8,
+            }}
+          >
+            {visibleCredentialOptions.map((option) => {
+              const checked = selectedAuthIndices.includes(option.authIndex);
+              return (
+                <label
+                  key={option.authIndex}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-secondary)',
+                    cursor: disabled ? 'default' : 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleAuthIndex(option.authIndex)}
+                    disabled={disabled}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600 }}>{option.title}</div>
+                    <div className="hint">{option.subtitle}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        {missingSelectedAuths.length > 0 ? (
+          <div className="hint" style={{ marginTop: 8 }}>
+            {t('config_management.visual.api_keys.credentials_missing', {
+              defaultValue: 'Selected auth_index values not found in current credential list:',
+            })}{' '}
+            {missingSelectedAuths.join(', ')}
+          </div>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+export function ApiKeyEditorModal({
+  open,
+  mode,
+  initialEntry = null,
+  sessionKey,
+  disabled,
+  onClose,
+  onSave,
+}: ApiKeyEditorModalProps) {
+  return (
+    <ApiKeyEditorModalInner
+      key={String(sessionKey ?? `${mode}:${initialEntry?.id ?? 'new'}`)}
+      open={open}
+      mode={mode}
+      initialEntry={initialEntry}
+      disabled={disabled}
+      onClose={onClose}
+      onSave={onSave}
+    />
+  );
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const cryptoApi = globalThis.crypto;
   const data = new TextEncoder().encode(input);
@@ -376,6 +770,7 @@ async function createProviderCredentialDescriptor(input: {
   kind: string;
   tokenParts: string[];
   providerKey: string;
+  authIndexProviderKey?: string;
   providerLabel: string;
   compatName?: string;
   baseUrl?: string;
@@ -389,7 +784,7 @@ async function createProviderCredentialDescriptor(input: {
   const source = `config:${input.providerKey}[${token}]`;
   const authIndex = await deriveConfigAuthIndex(
     buildConfigIndexSeed({
-      providerKey: input.providerKey,
+      providerKey: input.authIndexProviderKey ?? input.providerKey,
       compatName: input.compatName,
       baseUrl: input.baseUrl,
       proxyUrl: input.proxyUrl,
@@ -462,6 +857,7 @@ async function buildProviderCredentialDescriptors(config: Config | null | undefi
       kind: 'vertex:apikey',
       tokenParts: [entry.apiKey ?? '', entry.baseUrl ?? '', entry.proxyUrl ?? ''],
       providerKey: 'vertex-apikey',
+      authIndexProviderKey: 'vertex',
       providerLabel: 'vertex',
       baseUrl: entry.baseUrl,
       proxyUrl: entry.proxyUrl,
@@ -544,123 +940,43 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 }) {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
-  const config = useConfigStore((state) => state.config);
-  const fetchConfig = useConfigStore((state) => state.fetchConfig);
-  const apiKeys = useMemo(
-    () =>
-      value.map((entry) => ({
-        id: entry.id || makeClientId(),
-        name: String(entry.name ?? '').trim(),
-        key: String(entry.key ?? '').trim(),
-        allowedAuthIndices: Array.isArray(entry.allowedAuthIndices)
-          ? Array.from(new Set(entry.allowedAuthIndices.map((item) => String(item ?? '').trim()).filter(Boolean)))
-          : [],
-      })),
-    [value]
-  );
-
-  const apiKeyInputId = useId();
-  const apiKeyNameInputId = useId();
-  const apiKeyHintId = `${apiKeyInputId}-hint`;
-  const apiKeyErrorId = `${apiKeyInputId}-error`;
+  const apiKeys = useMemo(() => normalizeVisualApiKeyEntries(value), [value]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingApiKeyId, setEditingApiKeyId] = useState<string | null>(null);
-  const [nameInputValue, setNameInputValue] = useState('');
-  const [inputValue, setInputValue] = useState('');
-  const [selectedAuthIndices, setSelectedAuthIndices] = useState<string[]>([]);
-  const [formError, setFormError] = useState('');
-  const [credentialDescriptors, setCredentialDescriptors] = useState<CredentialDescriptor[]>([]);
-  const [credentialLoading, setCredentialLoading] = useState(true);
-
-  function generateSecureApiKey(): string {
-    const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const array = new Uint8Array(17);
-    crypto.getRandomValues(array);
-    return 'sk-' + Array.from(array, (b) => charset[b % charset.length]).join('');
-  }
+  const [modalSessionKey, setModalSessionKey] = useState(0);
+  const editingEntry = useMemo(
+    () => apiKeys.find((entry) => entry.id === editingApiKeyId) ?? null,
+    [apiKeys, editingApiKeyId]
+  );
+  const { credentialOptionMap } = useCredentialOptions();
 
   const openAddModal = () => {
     setEditingApiKeyId(null);
-    setNameInputValue('');
-    setInputValue('');
-    setSelectedAuthIndices([]);
-    setFormError('');
+    setModalSessionKey((current) => current + 1);
     setModalOpen(true);
   };
 
   const openEditModal = (apiKeyId: string) => {
-    const editingEntry = apiKeys.find((entry) => entry.id === apiKeyId);
     setEditingApiKeyId(apiKeyId);
-    setNameInputValue(editingEntry?.name ?? '');
-    setInputValue(editingEntry?.key ?? '');
-    setSelectedAuthIndices(editingEntry?.allowedAuthIndices ?? []);
-    setFormError('');
+    setModalSessionKey((current) => current + 1);
     setModalOpen(true);
   };
 
   const closeModal = () => {
     setModalOpen(false);
-    setNameInputValue('');
-    setInputValue('');
     setEditingApiKeyId(null);
-    setSelectedAuthIndices([]);
-    setFormError('');
   };
-
-  useEffect(() => {
-    let active = true;
-    Promise.all([
-      authFilesApi
-        .list()
-        .then((response) => buildAuthFileCredentialDescriptors(response.files ?? []))
-        .catch(() => []),
-      (config ? Promise.resolve(config) : fetchConfig().catch(() => null))
-        .then((resolvedConfig) => buildProviderCredentialDescriptors(resolvedConfig as Config | null))
-        .catch(() => []),
-    ])
-      .then(([authFileCredentials, providerCredentials]) => {
-        if (!active) return;
-        setCredentialDescriptors(mergeCredentialDescriptors(authFileCredentials, providerCredentials));
-      })
-      .finally(() => {
-        if (!active) return;
-        setCredentialLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [config, fetchConfig]);
 
   const handleDelete = (apiKeyId: string) => {
     onChange(apiKeys.filter((entry) => entry.id !== apiKeyId));
   };
 
-  const handleSave = () => {
-    const trimmed = inputValue.trim();
-    if (!trimmed) {
-      setFormError(t('config_management.visual.api_keys.error_empty'));
-      return;
-    }
-    if (!isValidApiKeyCharset(trimmed)) {
-      setFormError(t('config_management.visual.api_keys.error_invalid'));
-      return;
-    }
-
-    const normalizedSelection = Array.from(
-      new Set(selectedAuthIndices.map((item) => item.trim()).filter(Boolean))
-    );
-    const nextEntry: VisualApiKeyEntry = {
-      id: editingApiKeyId ?? makeClientId(),
-      name: nameInputValue.trim(),
-      key: trimmed,
-      allowedAuthIndices: normalizedSelection,
-    };
+  const handleModalSave = (nextEntry: VisualApiKeyEntry) => {
     const nextKeys =
       editingApiKeyId === null
         ? [...apiKeys, nextEntry]
         : apiKeys.map((entry) => (entry.id === editingApiKeyId ? nextEntry : entry));
     onChange(nextKeys);
-    closeModal();
   };
 
   const handleCopy = async (apiKey: string) => {
@@ -668,28 +984,6 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     showNotification(
       t(copied ? 'notification.link_copied' : 'notification.copy_failed'),
       copied ? 'success' : 'error'
-    );
-  };
-
-  const handleGenerate = () => {
-    setInputValue(generateSecureApiKey());
-    setFormError('');
-  };
-
-  const credentialOptions = useMemo(
-    () => buildCredentialOptions(credentialDescriptors, t),
-    [credentialDescriptors, t]
-  );
-  const credentialOptionMap = useMemo(
-    () => new Map(credentialOptions.map((option) => [option.authIndex, option])),
-    [credentialOptions]
-  );
-
-  const toggleAuthIndex = (authIndex: string) => {
-    setSelectedAuthIndices((current) =>
-      current.includes(authIndex)
-        ? current.filter((item) => item !== authIndex)
-        : [...current, authIndex]
     );
   };
 
@@ -710,8 +1004,6 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
     });
     return labels.join(' / ');
   };
-
-  const missingSelectedAuths = selectedAuthIndices.filter((authIndex) => !credentialOptionMap.has(authIndex));
 
   return (
     <div className="form-group" style={{ marginBottom: 0 }}>
@@ -769,168 +1061,15 @@ export const ApiKeysCardEditor = memo(function ApiKeysCardEditor({
 
       <div className="hint">{t('config_management.visual.api_keys.hint')}</div>
 
-      <Modal
+      <ApiKeyEditorModal
         open={modalOpen}
         onClose={closeModal}
-        title={
-          editingApiKeyId !== null
-            ? t('config_management.visual.api_keys.edit_title')
-            : t('config_management.visual.api_keys.add_title')
-        }
-        footer={
-          <>
-            <Button variant="secondary" onClick={closeModal} disabled={disabled}>
-              {t('config_management.visual.common.cancel')}
-            </Button>
-            <Button onClick={handleSave} disabled={disabled}>
-              {editingApiKeyId !== null
-                ? t('config_management.visual.common.update')
-                : t('config_management.visual.common.add')}
-            </Button>
-          </>
-        }
-      >
-        <div className="form-group">
-          <label htmlFor={apiKeyNameInputId}>
-            {t('config_management.visual.api_keys.name_label')}
-          </label>
-          <input
-            id={apiKeyNameInputId}
-            className="input"
-            placeholder={t('config_management.visual.api_keys.name_placeholder')}
-            value={nameInputValue}
-            onChange={(e) => setNameInputValue(e.target.value)}
-            disabled={disabled}
-          />
-          <div className="hint">{t('config_management.visual.api_keys.name_hint')}</div>
-        </div>
-
-        <div className="form-group">
-          <label htmlFor={apiKeyInputId}>
-            {t('config_management.visual.api_keys.input_label')}
-          </label>
-          <div className={styles.apiKeyModalInputRow}>
-            <input
-              id={apiKeyInputId}
-              className="input"
-              placeholder={t('config_management.visual.api_keys.input_placeholder')}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              disabled={disabled}
-              aria-describedby={formError ? `${apiKeyErrorId} ${apiKeyHintId}` : apiKeyHintId}
-              aria-invalid={Boolean(formError)}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleGenerate}
-              disabled={disabled}
-            >
-              {t('config_management.visual.api_keys.generate')}
-            </Button>
-          </div>
-          <div id={apiKeyHintId} className="hint">
-            {t('config_management.visual.api_keys.input_hint')}
-          </div>
-          {formError && (
-            <div id={apiKeyErrorId} className="error-box">
-              {formError}
-            </div>
-          )}
-        </div>
-
-        <div className="form-group">
-          <div className={styles.subsectionHeader}>
-            <div className={styles.subsectionTitle}>
-              {t('config_management.visual.api_keys.scope_label', {
-                defaultValue: 'Allowed credentials',
-              })}
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => setSelectedAuthIndices([])}
-              disabled={disabled}
-            >
-              {t('config_management.visual.api_keys.scope_reset', {
-                defaultValue: 'Use all',
-              })}
-            </Button>
-          </div>
-          <div className="hint">
-            {t('config_management.visual.api_keys.scope_hint', {
-              defaultValue:
-                'Leave empty to allow all provider API keys and OAuth credentials. Select entries below to restrict this client key.',
-            })}
-          </div>
-
-          {credentialLoading ? (
-            <div className={styles.emptyState}>
-              {t('config_management.visual.api_keys.credentials_loading', {
-                defaultValue: 'Loading credentials…',
-              })}
-            </div>
-          ) : credentialOptions.length === 0 ? (
-            <div className={styles.emptyState}>
-              {t('config_management.visual.api_keys.credentials_empty', {
-                defaultValue: 'No provider keys or OAuth credentials available yet.',
-              })}
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                maxHeight: 280,
-                overflow: 'auto',
-                marginTop: 8,
-              }}
-            >
-              {credentialOptions.map((option) => {
-                const checked = selectedAuthIndices.includes(option.authIndex);
-                return (
-                  <label
-                    key={option.authIndex}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 10,
-                      padding: '10px 12px',
-                      borderRadius: 12,
-                      border: '1px solid var(--border-color)',
-                      background: 'var(--bg-secondary)',
-                      cursor: disabled ? 'default' : 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleAuthIndex(option.authIndex)}
-                      disabled={disabled}
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600 }}>{option.title}</div>
-                      <div className="hint">{option.subtitle}</div>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-
-          {missingSelectedAuths.length > 0 && (
-            <div className="hint" style={{ marginTop: 8 }}>
-              {t('config_management.visual.api_keys.credentials_missing', {
-                defaultValue: 'Selected auth_index values not found in current credential list:',
-              })}{' '}
-              {missingSelectedAuths.join(', ')}
-            </div>
-          )}
-        </div>
-      </Modal>
+        mode={editingApiKeyId === null ? 'add' : 'edit'}
+        initialEntry={editingEntry}
+        sessionKey={modalSessionKey}
+        onSave={handleModalSave}
+        disabled={disabled}
+      />
     </div>
   );
 });
